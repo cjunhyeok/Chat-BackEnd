@@ -1,7 +1,7 @@
 package com.chat.socket.handler;
 
-import com.chat.consts.SessionConst;
-import com.chat.socket.manager.ChatRoomManager;
+import com.chat.utils.consts.SessionConst;
+import com.chat.socket.manager.PreviousChatRoomManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -17,13 +17,13 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class ChatRoomTextWebSocketHandler extends TextWebSocketHandler {
 
-    private final ChatRoomManager chatRoomManager;
+    private final PreviousChatRoomManager previousChatRoomManager;
 
     // WebSocket 연결 시 실행
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws IOException {
         Long chatRoomId = extractRoomId(session);
-        chatRoomManager.addSessionToRoom(chatRoomId, session);
+        previousChatRoomManager.addSessionToRoom(chatRoomId, session);
 
         log.info("Connect WebSocket");
     }
@@ -31,7 +31,7 @@ public class ChatRoomTextWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Long chatRoomId = extractRoomId(session);
-        chatRoomManager.removeSessionFromRoom(chatRoomId, session);
+        previousChatRoomManager.removeSessionFromRoom(chatRoomId, session);
         log.info("Close WebSocket");
     }
 
@@ -45,6 +45,6 @@ public class ChatRoomTextWebSocketHandler extends TextWebSocketHandler {
         Long chatRoomId = extractRoomId(session);
         Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
         String payload = message.getPayload();
-        chatRoomManager.broadcastMessageToChatRoom(loginMemberId, chatRoomId, payload);
+        previousChatRoomManager.broadcastMessageToChatRoom(loginMemberId, chatRoomId, payload);
     }
 }
