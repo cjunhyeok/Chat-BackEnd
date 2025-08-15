@@ -3,12 +3,14 @@ package com.chat.service.dtos.chat;
 import com.chat.utils.message.BaseWebSocketMessage;
 import com.chat.service.dtos.SaveChatData;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 
 @Getter
 @SuperBuilder
+@NoArgsConstructor
 public class SendChat extends BaseWebSocketMessage {
 
     private Long senderId;

@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MessageType {
 
-    CHAT_MESSAGE("채팅 메시지"),
+    CHAT_MESSAGE("CHAT_MESSAGE"),
     CHAT_ENTER("채팅방 접속"),
     ;
 
