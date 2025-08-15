@@ -1,6 +1,6 @@
 package com.chat.api;
 
-import com.chat.socket.manager.PreviousChatRoomManager;
+import com.chat.socket.manager.ChatRoomManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.SessionConst;
 import com.chat.service.ChatService;
@@ -24,18 +24,18 @@ public class ChatApiController {
 
     private final ChatService chatService;
     private final WebsocketSessionManager websocketSessionManager;
-    private final PreviousChatRoomManager previousChatRoomManager;
+    private final ChatRoomManager chatRoomManager;
 
     @GetMapping("/api/chats")
     public Result<List<ChatHistory>> chatHistory(@RequestParam("chatRoomId") Long chatRoomId,
-                              @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) throws IOException {
+                                                 @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) throws IOException {
 
         // 채팅 내역 조회
         List<ChatHistory> chatHistory = chatService.findChatHistory(chatRoomId, loginMemberId);
 
         // 채팅 소켓 연결
         WebSocketSession webSocketSession = websocketSessionManager.getSessionBy(loginMemberId);
-        previousChatRoomManager.addSessionToRoom(chatRoomId, webSocketSession);
+        chatRoomManager.addSessionToRoom(chatRoomId, webSocketSession);
 
         return Result
                 .<List<ChatHistory> >builder()

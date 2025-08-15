@@ -1,7 +1,7 @@
 package com.chat.socket.handler;
 
 import com.chat.service.dtos.chat.SendChat;
-import com.chat.socket.manager.PreviousChatRoomManager;
+import com.chat.socket.manager.ChatRoomManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.SessionConst;
 import com.chat.utils.message.BaseWebSocketMessage;
@@ -20,7 +20,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 public class IntegrationTextSocketHandler extends TextWebSocketHandler {
 
     private final WebsocketSessionManager websocketSessionManager;
-    private final PreviousChatRoomManager previousChatRoomManager;
+    private final ChatRoomManager chatRoomManager;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -28,7 +28,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
         websocketSessionManager.addSession(loginMemberId, session);
 
-        log.info("Connect Websocket : {}", loginMemberId);
+        log.info("Connect Websocket member : {}", loginMemberId);
     }
 
     @Override
@@ -40,7 +40,10 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             case CHAT_MESSAGE:
                 SendChat sendChat = (SendChat) baseMessage;
                 Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-                previousChatRoomManager.broadcastMessageToChatRoom(loginMemberId, sendChat.getChatRoomId(), payload);
+
+                log.info("chat : {} member : {}", payload, loginMemberId);
+
+                chatRoomManager.broadcastMessageToChatRoom(loginMemberId, sendChat.getChatRoomId(), payload);
                 break;
             default:
                 //todo 채팅 메시지 예외처리
@@ -50,9 +53,14 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        websocketSessionManager.removeSession((Long) session.getAttributes().get(SessionConst.SESSION_ID));
+        Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+
+        log.info("close Websocket member : {}", loginMemberId);
+
+        websocketSessionManager.removeSession(loginMemberId);
 
         // todo 채팅방 세션 삭제 필요
+        chatRoomManager.removeChatRoomsSessionBy(loginMemberId);
     }
 
 
