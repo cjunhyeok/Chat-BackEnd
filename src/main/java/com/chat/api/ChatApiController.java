@@ -36,6 +36,7 @@ public class ChatApiController {
         // 채팅 소켓 연결
         WebSocketSession webSocketSession = websocketSessionManager.getSessionBy(loginMemberId);
         chatRoomManager.addSessionToRoom(chatRoomId, webSocketSession);
+        websocketSessionManager.broadcastToChatRoomMembers(chatRoomId);
 
         return Result
                 .<List<ChatHistory> >builder()
