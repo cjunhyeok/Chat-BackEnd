@@ -63,20 +63,6 @@ public class ChatRoomManager {
         }
     }
 
-    public void removeSessionFromRoom(Long chatRoomId, WebSocketSession session) {
-
-        Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-        chatRoomParticipantService.leaveChatRoom(chatRoomId, loginMemberId);
-
-        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
-        if (sessions != null) {
-            sessions.remove(session);
-            if (sessions.isEmpty()) {
-                chatRooms.remove(chatRoomId);
-            }
-        }
-    }
-
     public void removeChatRoomsSessionBy(Long memberId) {
         Set<Long> chatRoomIds = memberToRoomsMap.get(memberId);
 
@@ -103,7 +89,7 @@ public class ChatRoomManager {
         Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
         if (sessions == null || sessions.isEmpty()) {
             //todo 예외처리
-            return;
+            return ;
         }
 
         SendChat sendChat = objectMapper.readValue(message, SendChat.class);
