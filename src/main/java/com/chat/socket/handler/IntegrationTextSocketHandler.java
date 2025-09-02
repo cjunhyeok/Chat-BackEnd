@@ -1,7 +1,10 @@
 package com.chat.socket.handler;
 
+import com.chat.exception.CustomException;
+import com.chat.exception.ErrorCode;
+import com.chat.service.ChatRoomService;
+import com.chat.service.MemberService;
 import com.chat.service.dtos.chat.SendChat;
-import com.chat.socket.manager.ChatRoomManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.SessionConst;
 import com.chat.utils.message.BaseWebSocketMessage;
@@ -20,12 +23,20 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 public class IntegrationTextSocketHandler extends TextWebSocketHandler {
 
     private final WebsocketSessionManager websocketSessionManager;
-    private final ChatRoomManager chatRoomManager;
+    private final ChatRoomService chatRoomService;
+    private final MemberService memberService;
     private final ObjectMapper objectMapper;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+        Object sessionObject = session.getAttributes().get(SessionConst.SESSION_ID);
+
+        if (sessionObject == null) {
+            log.info("No session Id in afterConnection");
+            throw new CustomException(ErrorCode.WEB_SOCKET_SESSION_NOT_EXIST);
+        }
+
+        Long loginMemberId = (Long) sessionObject;
         websocketSessionManager.addSession(loginMemberId, session);
 
         log.info("Connect Websocket member : {}", loginMemberId);
@@ -39,13 +50,14 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         switch (baseMessage.getMessageType()) {
             case CHAT_MESSAGE:
                 SendChat sendChat = (SendChat) baseMessage;
+                Long chatRoomId = sendChat.getChatRoomId();
                 Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
 
                 log.info("chat : {} member : {}", payload, loginMemberId);
 
-                Long chatRoomId = sendChat.getChatRoomId();
-                chatRoomManager.broadcastMessageToChatRoom(loginMemberId, chatRoomId, payload);
-                websocketSessionManager.broadcastToChatRoomMembers(chatRoomId);
+                chatRoomService.broadCastMessage(sendChat);
+                chatRoomService.broadcastToChatRoomMembers(chatRoomId);
+
                 break;
             default:
                 //todo 채팅 메시지 예외처리
@@ -59,6 +71,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
 
         log.info("close Websocket member : {}", loginMemberId);
 
+        memberService.removeSession(loginMemberId);
         websocketSessionManager.removeSession(loginMemberId);
     }
 

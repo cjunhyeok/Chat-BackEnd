@@ -1,7 +1,6 @@
 package com.chat.api;
 
-import com.chat.socket.manager.ChatRoomManager;
-import com.chat.socket.manager.WebsocketSessionManager;
+import com.chat.service.ChatRoomService;
 import com.chat.utils.consts.SessionConst;
 import com.chat.service.ChatService;
 import com.chat.service.dtos.ChatHistory;
@@ -12,7 +11,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.SessionAttribute;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
 import java.util.List;
@@ -23,8 +21,7 @@ import java.util.List;
 public class ChatApiController {
 
     private final ChatService chatService;
-    private final WebsocketSessionManager websocketSessionManager;
-    private final ChatRoomManager chatRoomManager;
+    private final ChatRoomService chatRoomService;
 
     @GetMapping("/api/chats")
     public Result<List<ChatHistory>> chatHistory(@RequestParam("chatRoomId") Long chatRoomId,
@@ -34,9 +31,7 @@ public class ChatApiController {
         List<ChatHistory> chatHistory = chatService.findChatHistory(chatRoomId, loginMemberId);
 
         // 채팅 소켓 연결
-        WebSocketSession webSocketSession = websocketSessionManager.getSessionBy(loginMemberId);
-        chatRoomManager.addSessionToRoom(chatRoomId, webSocketSession);
-        websocketSessionManager.broadcastToChatRoomMembers(chatRoomId);
+        chatRoomService.connectChatRoomSocket(loginMemberId, chatRoomId);
 
         return Result
                 .<List<ChatHistory> >builder()
