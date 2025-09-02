@@ -9,6 +9,8 @@ import com.chat.exception.ErrorCode;
 import com.chat.repository.MemberRepository;
 import com.chat.service.dtos.LoginResponse;
 import com.chat.service.utils.PasswordEncoder;
+import com.chat.socket.manager.ChatRoomManager;
+import com.chat.socket.manager.WebsocketSessionManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -25,6 +28,9 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final WebsocketSessionManager websocketSessionManager;
+    private final ChatRoomManager chatRoomManager;
+    private final ChatRoomParticipantService chatRoomParticipantService;
 
     @Transactional
     public Long join(JoinRequest request) {
@@ -76,5 +82,22 @@ public class MemberService {
         }
 
         return getMembersResponses;
+    }
+
+    public void removeSession(Long memberId) {
+
+        // todo 코드 순서 생각 필요
+
+        websocketSessionManager.removeSession(memberId);
+
+        Set<Long> chatRoomIds = chatRoomManager.getChatRoomIdsBy(memberId);
+        if (chatRoomIds == null || chatRoomIds.isEmpty()) {
+            return;
+        }
+
+        for (Long chatRoomId : chatRoomIds) {
+            chatRoomParticipantService.leaveChatRoom(chatRoomId, memberId);
+            chatRoomManager.removeChatRoomSession(chatRoomId, memberId);
+        }
     }
 }
