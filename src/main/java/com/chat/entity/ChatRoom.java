@@ -8,9 +8,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -26,14 +23,7 @@ public class ChatRoom extends BaseEntity {
         this.title = title;
     }
 
-    public static ChatRoom of(List<String> participants, String title) {
-        return new ChatRoom(title != null && !title.isEmpty()
-                ? title : generateDefaultTitle(participants));
-    }
-
-    private static String generateDefaultTitle(List<String> participants) {
-        return participants.stream()
-                .sorted()
-                .collect(Collectors.joining(", "));
+    public static ChatRoom of(String title) {
+        return new ChatRoom(title);
     }
 }
