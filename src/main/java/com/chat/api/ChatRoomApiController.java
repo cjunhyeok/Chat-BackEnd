@@ -3,7 +3,7 @@ package com.chat.api;
 import com.chat.api.response.chatroom.ChatRoomResponse;
 import com.chat.api.response.chatroom.ChatRoomsResponse;
 import com.chat.api.request.chatroom.SaveChatRooomRequest;
-import com.chat.consts.SessionConst;
+import com.chat.utils.consts.SessionConst;
 import com.chat.service.ChatRoomService;
 import com.chat.service.dtos.SaveChatRoomDTO;
 import lombok.RequiredArgsConstructor;

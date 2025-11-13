@@ -57,6 +57,10 @@ public class ChatService {
     }
 
     private void saveChatRead(Long senderId, Long chatRoomId, Chat chat) {
+
+        // 내가 보낸 메시지 이전의 메시지 모두 읽음처리
+        chatReadRepository.updateUnreadChatReadsToRead(senderId, chatRoomId);
+
         // 읽음 저장
         List<ChatRoomParticipant> findChatRoomParticipants
                 = chatRoomParticipantRepository
@@ -70,6 +74,8 @@ public class ChatService {
                 boolean isRead = findChatRoomParticipant.isParticipate();
                 ChatRead chatRead = new ChatRead(isRead, participant, chat);
                 chatReadRepository.save(chatRead);
+            } else {
+                chatReadRepository.save(new ChatRead(true, participant, chat));
             }
         }
     }

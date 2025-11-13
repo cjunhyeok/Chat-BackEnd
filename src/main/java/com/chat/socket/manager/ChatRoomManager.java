@@ -1,91 +1,113 @@
 package com.chat.socket.manager;
 
-import com.chat.consts.SessionConst;
-import com.chat.service.ChatReadService;
-import com.chat.service.ChatRoomParticipantService;
-import com.chat.service.ChatRoomService;
-import com.chat.service.ChatService;
-import com.chat.service.dtos.LastChatRead;
-import com.chat.service.dtos.SaveChatData;
+import com.chat.exception.CustomException;
+import com.chat.exception.ErrorCode;
 import com.chat.service.dtos.chat.EnterChatRoom;
-import com.chat.service.dtos.chat.SendChat;
+import com.chat.utils.annotation.VisibleForTesting;
+import com.chat.utils.consts.SessionConst;
+import com.chat.utils.valid.IdValidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChatRoomManager {
 
     private final Map<Long, Set<WebSocketSession>> chatRooms = new ConcurrentHashMap<>();
-    private final ChatRoomParticipantService chatRoomParticipantService;
-    private final ChatRoomService chatRoomService;
-    private final ChatService chatService;
-    private final ChatReadService chatReadService;
+    private final Map<Long, Set<Long>> memberToRoomsMap = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper;
 
-    public void addSessionToRoom(Long chatRoomId, WebSocketSession session) throws IOException {
-        chatRoomService.validChatRoomId(chatRoomId);
+    public void addSessionToRoom(WebSocketSession session, Long chatRoomId) {
 
+        IdValidator.requireChatRoomId(chatRoomId);
         Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-        chatRoomParticipantService.enterChatRoom(chatRoomId, loginMemberId);
 
         chatRooms.computeIfAbsent(chatRoomId, key -> ConcurrentHashMap.newKeySet()).add(session);
-
-        broadcastEnterChatRoom(loginMemberId, chatRoomId);
+        memberToRoomsMap.computeIfAbsent(loginMemberId, k -> ConcurrentHashMap.newKeySet()).add(chatRoomId);
     }
 
-    public void broadcastEnterChatRoom(Long loginMemberId, Long chatRoomId) throws IOException {
+    public void broadcastEnterChatRoom(Long chatRoomId, EnterChatRoom enterChatRoom) {
 
-        LastChatRead lastChatRead = chatReadService.findLastChatBy(chatRoomId, loginMemberId);
-        EnterChatRoom enterChatRoom = EnterChatRoom.builder()
-                .lastReadChatId(lastChatRead != null ? lastChatRead.getLastChatReadId() : null)
-                .memberId(lastChatRead != null ? lastChatRead.getMemberId() : null)
-                .build();
+        IdValidator.requireChatRoomId(chatRoomId);
 
-        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
+        try {
+            String enterChatRoomMessage = objectMapper.writeValueAsString(enterChatRoom);
+            Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
 
-        for (WebSocketSession session : sessions) {
-            session.sendMessage(new TextMessage(enterChatRoom.toJson()));
-        }
-    }
-
-    public void removeSessionFromRoom(Long chatRoomId, WebSocketSession session) {
-
-        Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-        chatRoomParticipantService.leaveChatRoom(chatRoomId, loginMemberId);
-
-        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
-        if (sessions != null) {
-            sessions.remove(session);
-            if (sessions.isEmpty()) {
-                chatRooms.remove(chatRoomId);
+            for (WebSocketSession session : sessions) {
+                session.sendMessage(new TextMessage(enterChatRoomMessage));
             }
+        } catch (IOException e) {
+            throw new CustomException(ErrorCode.CHAT_ROOM_BROADCAST_IO_EXCEPTION);
         }
     }
 
-    public void broadcastMessageToChatRoom(Long senderId, Long chatRoomId, String message) throws IOException {
-
+    public Set<WebSocketSession> getWebSocketSessionBy(Long chatRoomId) {
         Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
         if (sessions == null || sessions.isEmpty()) {
-            //todo 예외처리
+            throw new CustomException(ErrorCode.WEB_SOCKET_SESSION_NOT_EXIST);
+        }
+        return sessions;
+    }
+
+    public Set<Long> getChatRoomIdsBy(Long memberId) {
+        return memberToRoomsMap.get(memberId);
+    }
+
+    public void removeChatRoomSession(Long chatRoomId, Long memberId) {
+        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
+        if (sessions == null) {
             return;
         }
 
-        SendChat sendChat = SendChat.fromJson(message);
-
-        Long savedChatId = chatService.saveChat(senderId, chatRoomId, sendChat.getMessage());
-        SaveChatData chatData = chatService.findChatData(savedChatId);
-
-        sendChat.updateSavedChat(chatData);
-
+        List<WebSocketSession> toRemove = new ArrayList<>();
         for (WebSocketSession session : sessions) {
-            session.sendMessage(new TextMessage(sendChat.toJson()));
+            Object userIdObj = session.getAttributes().get(SessionConst.SESSION_ID);
+            if (userIdObj instanceof Long && ((Long) userIdObj).equals(memberId)) {
+                toRemove.add(session);
+            }
         }
+        sessions.removeAll(toRemove);
+
+        for (WebSocketSession session : toRemove) {
+            if (session.isOpen()) {
+                try {
+                    session.close(CloseStatus.NORMAL);
+                } catch (IOException e) {
+                    log.warn("Failed to close WebSocket session for memberId={} in chatRoomId={}", memberId, chatRoomId, e);
+                }
+            }
+        }
+
+        Set<Long> rooms = memberToRoomsMap.get(memberId);
+        if (rooms != null) {
+            rooms.remove(chatRoomId);
+            if (rooms.isEmpty()) {
+                memberToRoomsMap.remove(memberId);
+            }
+        }
+
+        if (sessions.isEmpty()) {
+            chatRooms.remove(chatRoomId);
+        }
+    }
+
+    @VisibleForTesting
+    public void clearAll() {
+        chatRooms.clear();
+        memberToRoomsMap.clear();
     }
 }

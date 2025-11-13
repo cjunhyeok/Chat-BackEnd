@@ -1,30 +1,28 @@
-package com.chat.api.response.chatroom;
+package com.chat.service.dtos.chat;
 
-import lombok.Builder;
+import com.chat.utils.message.BaseWebSocketMessage;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Getter
+@SuperBuilder
 @NoArgsConstructor
-public class ChatRoomsResponse {
+public class UpdateChatRoom extends BaseWebSocketMessage {
 
     private Long chatRoomId;
     private String title;
     private String lastMessage;
     private Long unReadCount;
     private LocalDateTime createdDate;
-    private List<OpponentResponse> opponents;
 
-    @Builder
-    public ChatRoomsResponse(Long chatRoomId, String title, String lastMessage, Long unReadCount, LocalDateTime createdDate, List<OpponentResponse> opponents) {
+    public UpdateChatRoom(Long chatRoomId, String title, String lastMessage, Long unReadCount, LocalDateTime createdDate) {
         this.chatRoomId = chatRoomId;
         this.title = title;
         this.lastMessage = lastMessage;
         this.unReadCount = unReadCount;
         this.createdDate = createdDate;
-        this.opponents = opponents;
     }
 }

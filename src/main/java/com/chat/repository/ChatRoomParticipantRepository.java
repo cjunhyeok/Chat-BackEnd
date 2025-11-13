@@ -6,11 +6,10 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomParticipant, Long> {
 
-    @Query("SELECT COUNT(crp.chatRoom.id)" +
+    @Query("SELECT crp.chatRoom.id" +
             " FROM ChatRoomParticipant crp" +
             " WHERE crp.member.id IN :memberIds" +
             " GROUP BY crp.chatRoom.id" +
@@ -19,13 +18,13 @@ public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomPar
             " (SELECT COUNT(DISTINCT sub.member.id)" +
             " FROM ChatRoomParticipant sub" +
             " WHERE sub.chatRoom.id = crp.chatRoom.id)")
-    Optional<Long> countByExactMembers(@Param("memberIds") List<Long> memberIds,
-                                      @Param("size") long size);
+    List<Long> findChatRoomIdsByExactMembers(@Param("memberIds") List<Long> memberIds,
+                                             @Param("size") long size);
 
     @Query(value = "SELECT crp" +
             " FROM ChatRoomParticipant crp" +
             " WHERE crp.member.id = :memberId")
-    List<ChatRoomParticipant> findAllByMemberId(@Param("memberId") Long memberId);
+    List<ChatRoomParticipant> findAllBy(@Param("memberId") Long memberId);
 
     @Query(value = "SELECT crp" +
             " FROM ChatRoomParticipant crp" +
@@ -37,6 +36,6 @@ public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomPar
             " FROM ChatRoomParticipant crp" +
             " WHERE crp.chatRoom.id = :chatRoomId" +
             " AND crp.member.id = :memberId")
-    ChatRoomParticipant findByChatRoomIdAndMemberId(@Param("chatRoomId") Long chatRoomId,
-                                                    @Param("memberId") Long memberId);
+    ChatRoomParticipant findChatRoomBy(@Param("chatRoomId") Long chatRoomId,
+                                       @Param("memberId") Long memberId);
 }

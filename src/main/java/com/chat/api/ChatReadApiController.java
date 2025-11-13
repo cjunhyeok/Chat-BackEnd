@@ -1,6 +1,6 @@
 package com.chat.api;
 
-import com.chat.consts.SessionConst;
+import com.chat.utils.consts.SessionConst;
 import com.chat.service.ChatReadService;
 import com.chat.service.dtos.LastChatRead;
 import lombok.RequiredArgsConstructor;

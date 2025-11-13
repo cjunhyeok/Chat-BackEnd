@@ -3,6 +3,7 @@ package com.chat.repository;
 import com.chat.entity.ChatRead;
 import com.chat.service.dtos.LastChatRead;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -33,7 +34,7 @@ public interface ChatReadRepository extends JpaRepository<ChatRead, Long> {
             " and cr.member.id = :memberId")
     ChatRead findBy(@Param("chatId") Long chatId, @Param("memberId") Long memberId);
 
-    @Query("SELECT new com.chat.service.dtos.LastChatRead(cr.member.id, MAX(c.id))" +
+    @Query("SELECT new com.chat.service.dtos.LastChatRead(cr.member.id, COALESCE(MAX(CASE WHEN cr.isRead = true THEN c.id ELSE 0 END), 0))" +
             "FROM ChatRead cr " +
             "JOIN cr.chat c " +
             "JOIN c.chatRoom r " +
@@ -50,4 +51,13 @@ public interface ChatReadRepository extends JpaRepository<ChatRead, Long> {
             " GROUP BY cr.member.id" +
             " ORDER BY MAX(c.id) DESC")
     List<LastChatRead> findLastReadChatBy(@Param("memberId") Long memberId, @Param("chatRoomId") Long chatRoomId);
+
+    @Modifying
+    @Query("UPDATE ChatRead cr " +
+            "SET cr.isRead = true " +
+            "WHERE cr.chat.chatRoom.id = :chatRoomId " +
+            "AND cr.member.id = :memberId " +
+            "AND cr.isRead = false")
+    int updateUnreadChatReadsToRead(@Param("memberId") Long memberId,
+                                    @Param("chatRoomId") Long chatRoomId);
 }

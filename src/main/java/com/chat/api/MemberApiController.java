@@ -5,7 +5,7 @@ import com.chat.api.request.member.JoinRequest;
 import com.chat.api.response.member.JoinResponse;
 import com.chat.api.request.member.LoginRequest;
 import com.chat.service.MemberService;
-import com.chat.consts.SessionConst;
+import com.chat.utils.consts.SessionConst;
 import com.chat.service.dtos.LoginResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;

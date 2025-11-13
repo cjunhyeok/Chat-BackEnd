@@ -1,4 +1,4 @@
-package com.chat.service.dtos;
+package com.chat.utils.message;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -7,8 +7,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MessageType {
 
-    CHAT_MESSAGE("채팅 메시지"),
+    CHAT_MESSAGE("CHAT_MESSAGE"),
     CHAT_ENTER("채팅방 접속"),
+    UPDATE_CHAT_ROOM("UPDATE_CHAT_ROOM"),
     ;
 
     private final String description;

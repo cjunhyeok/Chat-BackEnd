@@ -1,6 +1,6 @@
 package com.chat.socket.interceptor;
 
-import com.chat.consts.SessionConst;
+import com.chat.utils.consts.SessionConst;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.server.ServerHttpRequest;
