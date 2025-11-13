@@ -86,10 +86,6 @@ public class MemberService {
 
     public void removeSession(Long memberId) {
 
-        // todo 코드 순서 생각 필요
-
-        websocketSessionManager.removeSession(memberId);
-
         Set<Long> chatRoomIds = chatRoomManager.getChatRoomIdsBy(memberId);
         if (chatRoomIds == null || chatRoomIds.isEmpty()) {
             return;
@@ -99,5 +95,7 @@ public class MemberService {
             chatRoomParticipantService.leaveChatRoom(chatRoomId, memberId);
             chatRoomManager.removeChatRoomSession(chatRoomId, memberId);
         }
+
+        websocketSessionManager.removeSession(memberId);
     }
 }

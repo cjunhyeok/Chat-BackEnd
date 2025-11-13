@@ -72,7 +72,6 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         log.info("close Websocket member : {}", loginMemberId);
 
         memberService.removeSession(loginMemberId);
-        websocketSessionManager.removeSession(loginMemberId);
     }
 
 }
