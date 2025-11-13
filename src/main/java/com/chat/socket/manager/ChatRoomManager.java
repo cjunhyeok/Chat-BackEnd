@@ -3,11 +3,14 @@ package com.chat.socket.manager;
 import com.chat.exception.CustomException;
 import com.chat.exception.ErrorCode;
 import com.chat.service.dtos.chat.EnterChatRoom;
+import com.chat.utils.annotation.VisibleForTesting;
 import com.chat.utils.consts.SessionConst;
 import com.chat.utils.valid.IdValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -18,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ChatRoomManager {
@@ -76,7 +80,34 @@ public class ChatRoomManager {
                 toRemove.add(session);
             }
         }
-
         sessions.removeAll(toRemove);
+
+        for (WebSocketSession session : toRemove) {
+            if (session.isOpen()) {
+                try {
+                    session.close(CloseStatus.NORMAL);
+                } catch (IOException e) {
+                    log.warn("Failed to close WebSocket session for memberId={} in chatRoomId={}", memberId, chatRoomId, e);
+                }
+            }
+        }
+
+        Set<Long> rooms = memberToRoomsMap.get(memberId);
+        if (rooms != null) {
+            rooms.remove(chatRoomId);
+            if (rooms.isEmpty()) {
+                memberToRoomsMap.remove(memberId);
+            }
+        }
+
+        if (sessions.isEmpty()) {
+            chatRooms.remove(chatRoomId);
+        }
+    }
+
+    @VisibleForTesting
+    public void clearAll() {
+        chatRooms.clear();
+        memberToRoomsMap.clear();
     }
 }
