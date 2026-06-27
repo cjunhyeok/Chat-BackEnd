@@ -3,6 +3,7 @@ package com.chat.socket.interceptor;
 import com.chat.utils.consts.SessionConst;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.http.server.ServletServerHttpRequest;
@@ -12,6 +13,7 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
 
+@Slf4j
 @Component
 public class ChatHandshakeInterceptor implements HandshakeInterceptor {
 
@@ -25,11 +27,13 @@ public class ChatHandshakeInterceptor implements HandshakeInterceptor {
         HttpServletRequest servletRequest = ((ServletServerHttpRequest) request).getServletRequest();
         HttpSession httpSession = servletRequest.getSession(false);
         if (httpSession == null) {
+            log.warn("WS 연결 거부: HTTP 세션 없음, remoteAddress={}", request.getRemoteAddress());
             return false;
         }
 
-        Long loginMemberId = (Long) httpSession.getAttribute(SessionConst.SESSION_ID); // 세션에서 사용자 정보 가져오기
+        Long loginMemberId = (Long) httpSession.getAttribute(SessionConst.SESSION_ID);
         if (loginMemberId == null) {
+            log.warn("WS 연결 거부: 세션에 memberId 없음, httpSessionId={}", httpSession.getId());
             return false;
         }
 

@@ -49,7 +49,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         Object sessionObject = session.getAttributes().get(SessionConst.SESSION_ID);
 
         if (sessionObject == null) {
-            log.info("No session Id in afterConnection");
+            log.warn("WS 처리 실패: SESSION_ID 없음, session={}", session.getId());
             throw new CustomException(ErrorCode.WEB_SOCKET_SESSION_NOT_EXIST);
         }
 
@@ -57,18 +57,18 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         websocketSessionManager.addSession(loginMemberId, session);
         spaceManager.registerSession(session);
 
-        log.info("Connect Websocket member : {}", loginMemberId);
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
+        Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
 
         BaseWebSocketMessage baseMessage;
         try {
             baseMessage = objectMapper.readValue(payload, BaseWebSocketMessage.class);
         } catch (JsonProcessingException e) {
-            log.warn("WS 메시지 파싱 실패: session={}", session.getId(), e);
+            log.warn("WS 처리 실패: 메시지 파싱 오류, session={}, memberId={}", session.getId(), memberId, e);
             sendError(session, null, null, null, ErrorCode.INVALID_MESSAGE_FORMAT);
             return;
         }
@@ -78,27 +78,25 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                 case CHAT_MESSAGE:
                     SendChat sendChat = (SendChat) baseMessage;
                     Long chatRoomId = sendChat.getChatRoomId();
-                    Long loginMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
 
                     if (spaceManager.getWebSocketSessionBy(chatRoomId).stream()
                             .noneMatch(s -> s.getId().equals(session.getId()))) {
-                        log.warn("session not in room: session={}, chatRoomId={}", session.getId(),
-                                chatRoomId);
+                        log.warn("WS 처리 실패: 미참여 방에 메시지 전송, session={}, memberId={}, chatRoomId={}, messageType={}",
+                                session.getId(), memberId, chatRoomId, baseMessage.getMessageType());
                         sendError(session, baseMessage.getMessageType(), chatRoomId,
                                 sendChat.getClientMessageId(), ErrorCode.ROOM_NOT_JOINED);
                         break;
                     }
 
-                    log.info("chat : {} member : {}", payload, loginMemberId);
+                    log.debug("CHAT_MESSAGE 수신: memberId={}, chatRoomId={}", memberId, chatRoomId);
 
-                    spaceService.broadCastMessage(loginMemberId, sendChat);
+                    spaceService.broadCastMessage(memberId, sendChat);
 
                     break;
                 case ENTER_ROOM:
                     EnterRoomRequest enterRoomRequest = (EnterRoomRequest) baseMessage;
                     IdValidator.requireChatRoomId(enterRoomRequest.getChatRoomId());
-                    Long enterMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-                    spaceService.validateParticipant(enterMemberId, enterRoomRequest.getChatRoomId());
+                    spaceService.validateParticipant(memberId, enterRoomRequest.getChatRoomId());
                     WebSocketSession safeSession = websocketSessionManager.getWrappedSession(session);
                     spaceManager.addSessionToSpace(safeSession, enterRoomRequest.getChatRoomId());
                     sendEnterRoomAck(safeSession, enterRoomRequest.getChatRoomId());
@@ -107,10 +105,8 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                 case ROOM_ACTIVE:
                     RoomActiveRequest activeRequest = (RoomActiveRequest) baseMessage;
                     Long activeRoomId = activeRequest.getChatRoomId();
-                    Long activeMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-
                     spaceManager.activateSpace(session.getId(), activeRoomId);
-                    messageService.onRoomActive(activeMemberId, activeRoomId);
+                    messageService.onRoomActive(memberId, activeRoomId);
                     break;
                 case ROOM_INACTIVE:
                     RoomInactiveRequest inactiveRequest = (RoomInactiveRequest) baseMessage;
@@ -118,23 +114,25 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                     break;
                 case DISCUSSION_MESSAGE:
                     SendDiscussionMessage sendDiscussionMessage = (SendDiscussionMessage) baseMessage;
-                    Long discussionMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
                     discussionMessageService.broadcastDiscussionMessage(
                             sendDiscussionMessage.getDiscussionId(),
-                            discussionMemberId,
+                            memberId,
                             sendDiscussionMessage.getContent()
                     );
                     break;
                 default:
-                    log.warn("알 수 없는 messageType: session={}, type={}", session.getId(), baseMessage.getMessageType());
+                    log.warn("WS 처리 실패: 알 수 없는 messageType, session={}, memberId={}, messageType={}",
+                            session.getId(), memberId, baseMessage.getMessageType());
                     sendError(session, baseMessage.getMessageType(), null, null, ErrorCode.UNKNOWN_MESSAGE_TYPE);
             }
         } catch (CustomException e) {
-            log.warn("WS 처리 중 CustomException: session={}, error={}", session.getId(), e.getErrorCode(), e);
+            log.warn("WS 처리 실패: session={}, memberId={}, messageType={}, chatRoomId={}, errorCode={}",
+                    session.getId(), memberId, baseMessage.getMessageType(), extractChatRoomId(baseMessage), e.getErrorCode(), e);
             sendError(session, baseMessage.getMessageType(), extractChatRoomId(baseMessage),
                     extractClientMessageId(baseMessage), e.getErrorCode());
         } catch (Exception e) {
-            log.error("WS 처리 중 예상치 못한 오류: session={}", session.getId(), e);
+            log.error("WS 처리 실패: 예상치 못한 오류, session={}, memberId={}, messageType={}, chatRoomId={}",
+                    session.getId(), memberId, baseMessage.getMessageType(), extractChatRoomId(baseMessage), e);
             sendError(session, baseMessage.getMessageType(), extractChatRoomId(baseMessage),
                     extractClientMessageId(baseMessage), ErrorCode.UNEXPECTED_ERROR);
         }
@@ -149,7 +147,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                     .build();
             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(ack)));
         } catch (IOException e) {
-            log.warn("ENTER_ROOM_ACK 전송 실패: session={}", session.getId(), e);
+            log.warn("WS 전송 실패: ENTER_ROOM_ACK, session={}, chatRoomId={}", session.getId(), chatRoomId, e);
         }
     }
 
@@ -167,7 +165,8 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                     .build();
             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(error)));
         } catch (IOException e) {
-            log.warn("ERROR 이벤트 전송 실패: session={}", session.getId(), e);
+            log.warn("WS 전송 실패: ERROR 이벤트, session={}, requestType={}, chatRoomId={}, errorCode={}",
+                    session.getId(), requestType, chatRoomId, errorCode != null ? errorCode.name() : null, e);
         }
     }
 
@@ -207,7 +206,6 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        log.info("close Websocket member : {}", loginMemberId);
         memberService.removeSession(loginMemberId, session);
     }
 

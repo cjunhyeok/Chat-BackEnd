@@ -8,6 +8,7 @@ import com.chat.socket.event.PublishReadEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
+import com.chat.utils.consts.SessionConst;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,17 +65,17 @@ public class MessageBroadcastListener {
     }
 
     private void sendToSpaceSessions(Long chatRoomId, Object payload) {
-        send(spaceManager.getWebSocketSessionBy(chatRoomId), payload);
+        send(spaceManager.getWebSocketSessionBy(chatRoomId), payload, chatRoomId);
     }
 
     private void sendUpdateChatRoom(Map<Long, UpdateChatRoom> updatesByMemberId) {
         updatesByMemberId
                 .forEach((memberId, updateChatRoom) -> {
-                    send(websocketSessionManager.getSessionBy(memberId), updateChatRoom);
+                    send(websocketSessionManager.getSessionBy(memberId), updateChatRoom, updateChatRoom.getChatRoomId());
                 });
     }
 
-    private void send(Collection<WebSocketSession> sessions, Object payload) {
+    private void send(Collection<WebSocketSession> sessions, Object payload, Long chatRoomId) {
         if (sessions.isEmpty()) {
             return;
         }
@@ -83,7 +84,7 @@ public class MessageBroadcastListener {
         try {
             message = objectMapper.writeValueAsString(payload);
         } catch (IOException e) {
-            log.error("JSON 직렬화 실패: payload={}", payload.getClass().getSimpleName(), e);
+            log.error("Broadcast 직렬화 실패: eventType={}, chatRoomId={}", payload.getClass().getSimpleName(), chatRoomId, e);
             return;
         }
 
@@ -94,7 +95,9 @@ public class MessageBroadcastListener {
             try {
                 session.sendMessage(new TextMessage(message));
             } catch (IOException e) {
-                log.warn("전송 실패 : session={}", session.getId(), e);
+                Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+                log.warn("Broadcast 전송 실패: eventType={}, chatRoomId={}, session={}, memberId={}",
+                        payload.getClass().getSimpleName(), chatRoomId, session.getId(), memberId, e);
             }
         }
     }

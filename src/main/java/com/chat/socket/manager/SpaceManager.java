@@ -33,7 +33,8 @@ public class SpaceManager {
                 if (state != null) {
                     state.deactivatedIfRoom(roomId);
                 } else {
-                    log.warn("addSessionToSpace: no SessionState for sessionId={}", session.getId());
+                    Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+                    log.warn("addSessionToSpace: no SessionState, session={}, memberId={}", session.getId(), memberId);
                 }
 
                 removeSpaceSession(roomId, session);
@@ -46,7 +47,8 @@ public class SpaceManager {
         if (state != null) {
             state.activate(chatRoomId);
         } else {
-            log.warn("addSessionToSpace: no SessionState for sessionId={}", session.getId());
+            Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+            log.warn("addSessionToSpace: no SessionState, session={}, memberId={}", session.getId(), memberId);
         }
     }
 
