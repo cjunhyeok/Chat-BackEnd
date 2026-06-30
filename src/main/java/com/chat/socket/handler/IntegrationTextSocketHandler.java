@@ -16,11 +16,14 @@ import com.chat.service.dtos.chat.SendDiscussionMessage;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.SessionConst;
+import com.chat.utils.consts.WsMetricNames;
 import com.chat.utils.message.BaseWebSocketMessage;
 import com.chat.utils.message.MessageType;
 import com.chat.utils.valid.IdValidator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -43,6 +46,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
     private final MemberService memberService;
     private final DiscussionMessageService discussionMessageService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -94,13 +98,25 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
 
                     break;
                 case ENTER_ROOM:
+                    meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_TOTAL).increment();
+                    Timer.Sample enterRoomSample = Timer.start(meterRegistry);
                     EnterRoomRequest enterRoomRequest = (EnterRoomRequest) baseMessage;
-                    IdValidator.requireChatRoomId(enterRoomRequest.getChatRoomId());
-                    spaceService.validateParticipant(memberId, enterRoomRequest.getChatRoomId());
-                    WebSocketSession safeSession = websocketSessionManager.getWrappedSession(session);
-                    spaceManager.addSessionToSpace(safeSession, enterRoomRequest.getChatRoomId());
-                    sendEnterRoomAck(safeSession, enterRoomRequest.getChatRoomId());
-
+                    try {
+                        IdValidator.requireChatRoomId(enterRoomRequest.getChatRoomId());
+                        spaceService.validateParticipant(memberId, enterRoomRequest.getChatRoomId());
+                        WebSocketSession safeSession = websocketSessionManager.getWrappedSession(session);
+                        spaceManager.addSessionToSpace(safeSession, enterRoomRequest.getChatRoomId());
+                        sendEnterRoomAck(safeSession, enterRoomRequest.getChatRoomId());
+                        enterRoomSample.stop(meterRegistry.timer(WsMetricNames.WS_ENTER_ROOM_ACK_DURATION));
+                    } catch (CustomException e) {
+                        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_ERROR_TOTAL,
+                                "reason", mapMetricReason(e.getErrorCode())).increment();
+                        throw e;
+                    } catch (Exception e) {
+                        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_ERROR_TOTAL,
+                                "reason", "INTERNAL_ERROR").increment();
+                        throw e;
+                    }
                     break;
                 case ROOM_ACTIVE:
                     RoomActiveRequest activeRequest = (RoomActiveRequest) baseMessage;
@@ -194,6 +210,16 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             case ROOM_NOT_JOINED -> "ROOM_NOT_JOINED";
             case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
             default -> "INTERNAL_ERROR";
+        };
+    }
+
+    private String mapMetricReason(ErrorCode errorCode) {
+        return switch (errorCode) {
+            case SPACE_NOT_FOUND -> "ROOM_NOT_FOUND";
+            case USER_NOT_AUTHENTICATED, MEMBER_NOT_FOUND -> "UNAUTHORIZED";
+            case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE -> "INVALID_MESSAGE";
+            case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
+            default -> "UNKNOWN";
         };
     }
 

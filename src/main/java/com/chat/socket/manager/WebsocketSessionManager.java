@@ -3,6 +3,10 @@ package com.chat.socket.manager;
 import com.chat.exception.CustomException;
 import com.chat.exception.ErrorCode;
 import com.chat.utils.annotation.VisibleForTesting;
+import com.chat.utils.consts.WsMetricNames;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -20,8 +24,16 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class WebsocketSessionManager {
 
+    private final MeterRegistry meterRegistry;
     // 소켓에 연결된 사용자 정보
     private final Map<Long, Set<WebSocketSession>> activeMemberSessions = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void registerMetrics() {
+        Gauge.builder(WsMetricNames.WS_ACTIVE_SESSIONS, activeMemberSessions,
+                        map -> (double) map.values().stream().mapToInt(Set::size).sum())
+                .register(meterRegistry);
+    }
 
     public void addSession(Long memberId, WebSocketSession session) {
 
