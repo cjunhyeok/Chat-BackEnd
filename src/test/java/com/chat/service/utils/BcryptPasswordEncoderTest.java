@@ -2,6 +2,7 @@ package com.chat.service.utils;
 
 import com.chat.exception.CustomException;
 import com.chat.exception.ErrorCode;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ class BcryptPasswordEncoderTest {
 
     @BeforeEach
     void setUp() {
-        encoder = new BcryptPasswordEncoder();
+        encoder = new BcryptPasswordEncoder(new SimpleMeterRegistry());
         // @Value 주입 대신 직접 설정 (permits=1로 Semaphore 동작 검증 용이)
         ReflectionTestUtils.setField(encoder, "permits", 1);
         // @PostConstruct 직접 호출

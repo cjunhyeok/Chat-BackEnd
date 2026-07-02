@@ -11,6 +11,9 @@ import com.chat.service.dtos.LoginResponse;
 import com.chat.service.utils.PasswordEncoder;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
+import com.chat.utils.consts.LoginMetricNames;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +34,7 @@ public class MemberService {
     private final PasswordEncoder passwordEncoder;
     private final WebsocketSessionManager websocketSessionManager;
     private final SpaceManager spaceManager;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     public Long join(JoinRequest request) {
@@ -50,9 +54,15 @@ public class MemberService {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LoginResponse login(LoginRequest request) {
-        Member findMember = memberRepository.findByUsername(request.getUsername()).orElseThrow(
-                () -> new CustomException(ErrorCode.USERNAME_NOT_MATCH)
-        );
+        Timer.Sample dbQuerySample = Timer.start(meterRegistry);
+        Member findMember;
+        try {
+            findMember = memberRepository.findByUsername(request.getUsername()).orElseThrow(
+                    () -> new CustomException(ErrorCode.USERNAME_NOT_MATCH)
+            );
+        } finally {
+            dbQuerySample.stop(meterRegistry.timer(LoginMetricNames.LOGIN_DB_QUERY_DURATION));
+        }
 
         boolean isMatch = passwordEncoder.match(request.getPassword(), findMember.getPassword());
         if (!isMatch) {
