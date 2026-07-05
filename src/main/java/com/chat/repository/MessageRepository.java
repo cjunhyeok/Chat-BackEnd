@@ -23,6 +23,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     Optional<Message> findByClientMessageId(String clientMessageId);
 
+    boolean existsByIdAndSpaceId(Long id, Long spaceId);
+
     @Query("SELECT c" +
             " FROM Message c" +
             " WHERE c.id IN (" +

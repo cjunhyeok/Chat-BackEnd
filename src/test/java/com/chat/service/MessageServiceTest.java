@@ -1,6 +1,8 @@
 package com.chat.service;
 
 import com.chat.entity.*;
+import com.chat.exception.CustomException;
+import com.chat.exception.ErrorCode;
 import com.chat.fixture.TestDataFixture;
 import com.chat.repository.*;
 import com.chat.service.dtos.MessageHistory;
@@ -26,6 +28,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -869,6 +872,154 @@ class MessageServiceTest {
         // then: 이벤트는 1건만 발행
         long eventCount = events.stream(PublishReadEvent.class).count();
         assertThat(eventCount).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("READ_UP_TO 요청 시 cursor가 요청한 messageId까지 전진한다.")
+    void onReadUpTo_cursorAdvancesTest() {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello");
+
+        // when: receiver가 READ_UP_TO(chatId)
+        messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
+        em.flush(); em.clear();
+
+        // then
+        SpaceMember participant = spaceMemberRepository
+                .findChatRoomBy(chatRoomId, receiver.getId());
+        assertThat(participant.getLastReadMessageId()).isEqualTo(chatId);
+    }
+
+    @Test
+    @DisplayName("READ_UP_TO 성공 시 PublishReadEvent가 발행되고 previous/current 값이 정확하다.")
+    void onReadUpTo_publishesReadEventWithCorrectCursorsTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello");
+
+        // when
+        messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
+
+        // then
+        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class).toList();
+        assertThat(publishedEvents).hasSize(1);
+
+        PublishReadEvent event = publishedEvents.get(0);
+        assertThat(event.getMemberId()).isEqualTo(receiver.getId());
+        assertThat(event.getChatRoomId()).isEqualTo(chatRoomId);
+        assertThat(event.getPreviousLastReadChatId()).isNull(); // 이전에 읽은 기록 없음
+        assertThat(event.getCurrentLastReadChatId()).isEqualTo(chatId);
+    }
+
+    @Test
+    @DisplayName("READ_UP_TO 성공 시 updatesByMemberId에는 요청자 memberId만 포함된다.")
+    void onReadUpTo_publishesUpdateChatRoomForRequesterOnlyTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello");
+
+        // when
+        messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
+
+        // then
+        PublishReadEvent event = events.stream(PublishReadEvent.class).toList().get(0);
+        assertThat(event.getUpdatesByMemberId()).hasSize(1);
+        assertThat(event.getUpdatesByMemberId()).containsKey(receiver.getId());
+        assertThat(event.getUpdatesByMemberId()).doesNotContainKey(sender.getId());
+    }
+
+    @Test
+    @DisplayName("이미 읽은 messageId로 READ_UP_TO를 보내면 갱신되지 않고 이벤트도 발행되지 않는다.")
+    void onReadUpTo_alreadyReadNoop_doesNotPublishEventTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first");
+        Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second");
+
+        // 먼저 secondChatId까지 읽음 처리
+        messageService.onReadUpTo(receiver.getId(), chatRoomId, secondChatId);
+
+        // when: 이미 읽은 firstChatId(더 과거)로 다시 READ_UP_TO
+        assertThatCode(() -> messageService.onReadUpTo(receiver.getId(), chatRoomId, firstChatId))
+                .doesNotThrowAnyException();
+        em.flush(); em.clear();
+
+        // then: cursor는 secondChatId 그대로, 두 번째 호출로는 이벤트가 추가 발행되지 않음
+        SpaceMember participant = spaceMemberRepository
+                .findChatRoomBy(chatRoomId, receiver.getId());
+        assertThat(participant.getLastReadMessageId()).isEqualTo(secondChatId);
+        assertThat(events.stream(PublishReadEvent.class).count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("다른 room의 messageId로 READ_UP_TO를 보내면 MESSAGE_NOT_FOUND로 거부된다.")
+    void onReadUpTo_otherRoomMessageId_throwsMessageNotFoundTest() {
+        // given
+        Member member = fixture.savedMemberBy("member");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
+        Space otherRoom = fixture.savedChatRoomBy("otherRoom", List.of(member));
+
+        Long otherRoomChatId = messageService.saveMessage(member.getId(), otherRoom.getId(), "hello");
+
+        // when & then
+        assertThatThrownBy(() ->
+                messageService.onReadUpTo(member.getId(), chatRoom.getId(), otherRoomChatId))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MESSAGE_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 messageId로 READ_UP_TO를 보내면 MESSAGE_NOT_FOUND로 거부된다.")
+    void onReadUpTo_nonExistentMessageId_throwsMessageNotFoundTest() {
+        // given
+        Member member = fixture.savedMemberBy("member");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
+
+        // when & then
+        assertThatThrownBy(() ->
+                messageService.onReadUpTo(member.getId(), chatRoom.getId(), 999_999_999L))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MESSAGE_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("null 또는 음수 messageId로 READ_UP_TO를 보내면 MESSAGE_NOT_FOUND로 거부된다.")
+    void onReadUpTo_nullOrNegativeMessageId_throwsMessageNotFoundTest() {
+        // given
+        Member member = fixture.savedMemberBy("member");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
+
+        // when & then
+        assertThatThrownBy(() ->
+                messageService.onReadUpTo(member.getId(), chatRoom.getId(), null))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MESSAGE_NOT_FOUND);
+
+        assertThatThrownBy(() ->
+                messageService.onReadUpTo(member.getId(), chatRoom.getId(), -1L))
+                .isInstanceOf(CustomException.class)
+                .extracting(e -> ((CustomException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MESSAGE_NOT_FOUND);
     }
 
     @Test

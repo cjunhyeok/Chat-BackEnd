@@ -301,6 +301,50 @@ class MessageRepositoryTest {
         assertThat(result).isEmpty();
     }
 
+    @Test
+    @DisplayName("같은 room 소속 messageId는 existsByIdAndSpaceId가 true를 반환한다.")
+    void 같은_room_소속_messageId는_existsByIdAndSpaceId가_true를_반환한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+        Message chat = messageRepository.save(Message.of("message", member, chatRoom));
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(chat.getId(), chatRoom.getId());
+
+        // then
+        assertThat(exists).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 room 소속 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
+    void 다른_room_소속_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
+        // given
+        Member member = createMember("user");
+        Space targetRoom = createSpaceBy("target");
+        Space otherRoom = createSpaceBy("other");
+        Message otherChat = messageRepository.save(Message.of("other message", member, otherRoom));
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(otherChat.getId(), targetRoom.getId());
+
+        // then
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
+    void 존재하지_않는_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
+        // given
+        Space chatRoom = createSpaceBy("room");
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(999_999_999L, chatRoom.getId());
+
+        // then
+        assertThat(exists).isFalse();
+    }
+
     private Member createMember(String username) {
         String commonPassword = "password";
         Member member = Member.of(username, commonPassword, username);

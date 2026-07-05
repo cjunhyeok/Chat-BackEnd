@@ -9,6 +9,7 @@ import com.chat.service.MemberService;
 import com.chat.service.dtos.chat.EnterRoomAckResponse;
 import com.chat.service.dtos.chat.EnterRoomRequest;
 import com.chat.service.dtos.chat.ErrorResponse;
+import com.chat.service.dtos.chat.ReadUpToRequest;
 import com.chat.service.dtos.chat.RoomActiveRequest;
 import com.chat.service.dtos.chat.RoomInactiveRequest;
 import com.chat.service.dtos.chat.SendChat;
@@ -128,6 +129,18 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
                     RoomInactiveRequest inactiveRequest = (RoomInactiveRequest) baseMessage;
                     spaceManager.deactivateSpace(session.getId(), inactiveRequest.getChatRoomId());
                     break;
+                case READ_UP_TO:
+                    ReadUpToRequest readUpToRequest = (ReadUpToRequest) baseMessage;
+                    Long readUpToRoomId = readUpToRequest.getChatRoomId();
+
+                    if (spaceManager.getWebSocketSessionBy(readUpToRoomId).stream()
+                            .noneMatch(s -> s.getId().equals(session.getId()))) {
+                        sendError(session, baseMessage.getMessageType(), readUpToRoomId, null, ErrorCode.ROOM_NOT_JOINED);
+                        break;
+                    }
+
+                    messageService.onReadUpTo(memberId, readUpToRoomId, readUpToRequest.getLastReadMessageId());
+                    break;
                 case DISCUSSION_MESSAGE:
                     SendDiscussionMessage sendDiscussionMessage = (SendDiscussionMessage) baseMessage;
                     discussionMessageService.broadcastDiscussionMessage(
@@ -191,6 +204,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         if (baseMessage instanceof SendChat r) return r.getChatRoomId();
         if (baseMessage instanceof RoomActiveRequest r) return r.getChatRoomId();
         if (baseMessage instanceof RoomInactiveRequest r) return r.getChatRoomId();
+        if (baseMessage instanceof ReadUpToRequest r) return r.getChatRoomId();
         return null;
     }
 
@@ -208,6 +222,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             case USER_NOT_AUTHENTICATED, MEMBER_NOT_FOUND -> "UNAUTHORIZED";
             case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE -> "INVALID_MESSAGE";
             case ROOM_NOT_JOINED -> "ROOM_NOT_JOINED";
+            case MESSAGE_NOT_FOUND -> "MESSAGE_NOT_FOUND";
             case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
             default -> "INTERNAL_ERROR";
         };
