@@ -17,8 +17,11 @@ import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
+import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.consts.SessionConst;
 import com.chat.utils.message.MessageType;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -38,6 +41,7 @@ public class SpaceService {
     private final ApplicationEventPublisher publisher;
     private final BroadcastDataBuilder broadcastDataBuilder;
     private final SpaceManager spaceManager;
+    private final MeterRegistry meterRegistry;
 
     private final MessageService messageService;
 
@@ -48,29 +52,34 @@ public class SpaceService {
 
     @Transactional
     public void broadCastMessage(Long memberId, SendChat sendChat) {
-        Long chatRoomId = sendChat.getChatRoomId();
-        Long savedMessageId = messageService.saveMessage(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
+        Timer.Sample flowSample = Timer.start(meterRegistry);
+        try {
+            Long chatRoomId = sendChat.getChatRoomId();
+            Long savedMessageId = messageService.saveMessage(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
 
-        Member sender = memberRepository.findById(memberId).orElseThrow(
-                () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
-        );
+            Member sender = memberRepository.findById(memberId).orElseThrow(
+                    () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
+            );
 
-        SaveMessageData messageData = messageService.findMessageData(savedMessageId);
+            SaveMessageData messageData = messageService.findMessageData(savedMessageId);
 
-        BroadcastChat broadcastChat = BroadcastChat.builder()
-                .messageType(MessageType.CHAT_MESSAGE)
-                .senderId(memberId)
-                .senderNickname(sender.getNickname())
-                .chatRoomId(chatRoomId)
-                .message(sendChat.getMessage())
-                .chatId(messageData.getChatId())
-                .unreadMemberCount(messageData.getUnreadMemberCount())
-                .createdDate(messageData.getCreatedDate())
-                .clientMessageId(sendChat.getClientMessageId())
-                .build();
+            BroadcastChat broadcastChat = BroadcastChat.builder()
+                    .messageType(MessageType.CHAT_MESSAGE)
+                    .senderId(memberId)
+                    .senderNickname(sender.getNickname())
+                    .chatRoomId(chatRoomId)
+                    .message(sendChat.getMessage())
+                    .chatId(messageData.getChatId())
+                    .unreadMemberCount(messageData.getUnreadMemberCount())
+                    .createdDate(messageData.getCreatedDate())
+                    .clientMessageId(sendChat.getClientMessageId())
+                    .build();
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishMessageEvent(broadcastChat, chatRoomId, updatesByMemberId));
+            Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
+            publisher.publishEvent(new PublishMessageEvent(broadcastChat, chatRoomId, updatesByMemberId, System.nanoTime()));
+        } finally {
+            flowSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_FLOW_DURATION));
+        }
     }
 
     @Transactional
