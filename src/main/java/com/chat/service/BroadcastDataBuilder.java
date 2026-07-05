@@ -7,7 +7,10 @@ import com.chat.exception.ErrorCode;
 import com.chat.repository.*;
 import com.chat.repository.dtos.MemberUnreadCount;
 import com.chat.service.dtos.chat.UpdateChatRoom;
+import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.message.MessageType;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -25,14 +28,20 @@ public class BroadcastDataBuilder {
     private final SpaceRepository spaceRepository;
     private final MessageRepository messageRepository;
     private final SpaceMemberRepository spaceMemberRepository;
+    private final MeterRegistry meterRegistry;
 
     public Map<Long, UpdateChatRoom> build(Long chatRoomId) {
-        if (chatRoomId == null) return Map.of();
+        Timer.Sample updateBuildSample = Timer.start(meterRegistry);
+        try {
+            if (chatRoomId == null) return Map.of();
 
-        List<Long> memberIds = memberRepository.findMemberIdsIn(chatRoomId);
-        if (memberIds.isEmpty()) return Map.of();
+            List<Long> memberIds = memberRepository.findMemberIdsIn(chatRoomId);
+            if (memberIds.isEmpty()) return Map.of();
 
-        return build(chatRoomId, new HashSet<>(memberIds));
+            return build(chatRoomId, new HashSet<>(memberIds));
+        } finally {
+            updateBuildSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_UPDATE_BUILD_DURATION));
+        }
     }
 
     public Map<Long, UpdateChatRoom> build(Long chatRoomId, Set<Long> targetMemberIds) {

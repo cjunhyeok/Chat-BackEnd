@@ -14,4 +14,5 @@ public class PublishMessageEvent {
     private final BroadcastChat broadcastChat;
     private final Long chatRoomId;
     private final Map<Long, UpdateChatRoom> updatesByMemberId;
+    private final long publishedAtNanos;
 }

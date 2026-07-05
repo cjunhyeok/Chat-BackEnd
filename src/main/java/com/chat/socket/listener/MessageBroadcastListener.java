@@ -8,8 +8,11 @@ import com.chat.socket.event.PublishReadEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
+import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.consts.SessionConst;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -20,6 +23,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Map;
 
@@ -31,12 +35,28 @@ public class MessageBroadcastListener {
     private final SpaceManager spaceManager;
     private final WebsocketSessionManager websocketSessionManager;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     @Async("broadcastExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishMessageToSessions(PublishMessageEvent event) {
-        sendToSpaceSessions(event.getChatRoomId(), event.getBroadcastChat());
-        sendUpdateChatRoom(event.getUpdatesByMemberId());
+        long afterCommitDelayNanos = System.nanoTime() - event.getPublishedAtNanos();
+        meterRegistry.timer(MessageMetricNames.MESSAGE_AFTER_COMMIT_DELAY)
+                .record(Duration.ofNanos(afterCommitDelayNanos));
+
+        Timer.Sample chatBroadcastSample = Timer.start(meterRegistry);
+        try {
+            sendToSpaceSessions(event.getChatRoomId(), event.getBroadcastChat());
+        } finally {
+            chatBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_BROADCAST_CHAT_DURATION));
+        }
+
+        Timer.Sample updateBroadcastSample = Timer.start(meterRegistry);
+        try {
+            sendUpdateChatRoom(event.getUpdatesByMemberId());
+        } finally {
+            updateBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_BROADCAST_UPDATE_DURATION));
+        }
     }
 
     @Async("broadcastExecutor")
