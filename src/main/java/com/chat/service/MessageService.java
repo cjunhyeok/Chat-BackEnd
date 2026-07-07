@@ -11,7 +11,6 @@ import com.chat.service.dtos.MessageHistoryResponse;
 import com.chat.service.dtos.SaveMessageData;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishReadEvent;
-import com.chat.socket.manager.SpaceManager;
 import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.valid.IdValidator;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -37,8 +36,6 @@ public class MessageService {
     private final ApplicationEventPublisher publisher;
 
     private final BroadcastDataBuilder broadcastDataBuilder;
-
-    private final SpaceManager spaceManager;
 
     private final MeterRegistry meterRegistry;
 
@@ -96,31 +93,15 @@ public class MessageService {
         );
 
         Message savedChat = messageRepository.save(Message.of(message, findSender, findChatRoom, clientMessageId));
-        updateCursorsOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
+        updateSenderCursorOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
 
         return savedChat.getId();
     }
 
-    private void updateCursorsOnSend(Long senderId, Long chatRoomId, Message chat) {
+    private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
         Timer.Sample cursorUpdateSample = Timer.start(meterRegistry);
         try {
-            List<SpaceMember> findSpaceMembers
-                    = spaceMemberRepository.findAllFetchMemberBy(chatRoomId);
-
-            List<Long> readMemberIds = new ArrayList<>();
-
-            for (SpaceMember crp : findSpaceMembers) {
-                Long memberId = crp.getMember().getId();
-                boolean isRead = memberId.equals(senderId)
-                        || spaceManager.isSpaceActive(memberId, chatRoomId);
-                if (isRead) {
-                    readMemberIds.add(memberId);
-                }
-            }
-
-            for (Long memberId : readMemberIds) {
-                spaceMemberRepository.updateLastReadMessageId(memberId, chatRoomId, chat.getId());
-            }
+            spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
         } finally {
             cursorUpdateSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_CURSOR_UPDATE_DURATION));
         }

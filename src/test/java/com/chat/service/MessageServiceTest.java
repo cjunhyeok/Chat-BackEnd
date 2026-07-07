@@ -608,8 +608,8 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("메시지 전송 시 ROOM_ACTIVE 상태인 수신자의 cursor가 갱신된다.")
-    void saveChat_activeRoomReceiverCursorUpdatedTest() {
+    @DisplayName("메시지 전송 시 ROOM_ACTIVE 상태인 수신자라도 CHAT_MESSAGE만으로는 cursor가 갱신되지 않는다 (READ_UP_TO/ROOM_ACTIVE가 담당).")
+    void saveChat_activeRoomReceiverCursorNotUpdatedTest() {
         // given
         Member sender = fixture.savedMemberBy("sender");
         Member activeReceiver = fixture.savedMemberBy("activeReceiver");
@@ -629,10 +629,15 @@ class MessageServiceTest {
         Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), "hello");
         em.clear();
 
-        // then: activeReceiver → cursor 갱신됨
+        // then: sender → cursor 갱신됨 (sender-only 정책)
+        SpaceMember senderParticipant = spaceMemberRepository
+                .findChatRoomBy(chatRoom.getId(), sender.getId());
+        assertThat(senderParticipant.getLastReadMessageId()).isEqualTo(savedChatId);
+
+        // activeReceiver → CHAT_MESSAGE만으로는 cursor 갱신 안 됨 (READ_UP_TO/ROOM_ACTIVE가 담당)
         SpaceMember activeParticipant = spaceMemberRepository
                 .findChatRoomBy(chatRoom.getId(), activeReceiver.getId());
-        assertThat(activeParticipant.getLastReadMessageId()).isEqualTo(savedChatId);
+        assertThat(activeParticipant.getLastReadMessageId()).isNull();
 
         // inactiveReceiver → cursor 갱신 안 됨
         SpaceMember inactiveParticipant = spaceMemberRepository
@@ -641,7 +646,7 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("메시지 전송 시 방에 접속 중이어도 ROOM_ACTIVE 상태가 아니면 cursor가 갱신되지 않는다.")
+    @DisplayName("메시지 전송 시 방에 접속 중이지만 inactive 상태인 수신자도 cursor가 갱신되지 않는다.")
     void saveChat_inRoomButInactiveReceiverCursorNotUpdatedTest() {
         // given
         Member sender = fixture.savedMemberBy("sender");
@@ -789,23 +794,17 @@ class MessageServiceTest {
         Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
         Long chatRoomId = chatRoom.getId();
 
-        // receiver: ENTER_ROOM(auto-activate)
-        WebSocketSession mockSession = mock(WebSocketSession.class);
-        given(mockSession.getId()).willReturn("session-receiver");
-        given(mockSession.getAttributes())
-                .willReturn(Map.of(SessionConst.SESSION_ID, receiver.getId()));
-        spaceManager.registerSession(mockSession);
-        spaceManager.addSessionToSpace(mockSession, chatRoomId);
+        Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg");
 
-        // 메시지 전송 → receiver가 active이므로 cursor 즉시 갱신됨
-        messageService.saveMessage(sender.getId(), chatRoomId, "msg");
+        // READ_UP_TO로 이미 최신까지 읽음 처리된 상태 (sender-only 정책에서 active 상태의 실제 catch-up 경로)
+        messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
 
-        // when: ROOM_ACTIVE (cursor가 이미 최신)
+        // when: 이미 최신인 상태에서 ROOM_ACTIVE
         messageService.onRoomActive(receiver.getId(), chatRoomId);
 
-        // then: PublishReadEvent 발행 없음
+        // then: onReadUpTo에서 발행된 이벤트 1건만 존재, ROOM_ACTIVE로 인한 추가 발행 없음
         long eventCount = events.stream(PublishReadEvent.class).count();
-        assertThat(eventCount).isEqualTo(0);
+        assertThat(eventCount).isEqualTo(1);
     }
 
     @Test
