@@ -33,12 +33,48 @@ management:
       percentiles-histogram:
         http.server.requests: true
         ws_send_duration: true
+        ws_enter_room_ack_duration_seconds: true
+        login_permit_hold_duration_seconds: true
+        bcrypt_permit_wait_duration_seconds: true
+        login_db_query_duration_seconds: true
+        message_flow_duration_seconds: true
+        message_idempotency_check_duration_seconds: true
+        message_cursor_update_duration_seconds: true
+        message_data_load_duration_seconds: true
+        message_update_build_duration_seconds: true
+        message_after_commit_delay_seconds: true
+        message_broadcast_chat_duration_seconds: true
+        message_broadcast_update_duration_seconds: true
       slo:
         http.server.requests: 100ms,200ms,500ms,1s,2s
         ws_send_duration: 1ms,5ms,10ms,50ms,100ms,500ms
+        ws_enter_room_ack_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s
+        login_permit_hold_duration_seconds: 100ms,200ms,500ms,1s,2s,3s
+        bcrypt_permit_wait_duration_seconds: 10ms,50ms,100ms,500ms,1s,2s,3s
+        login_db_query_duration_seconds: 10ms,50ms,100ms,500ms,1s,2s,3s
+        message_flow_duration_seconds: 10ms,50ms,100ms,500ms,1s,3s,5s,10s
+        message_idempotency_check_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s
+        message_cursor_update_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s,5s
+        message_data_load_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s
+        message_update_build_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s,5s
+        message_after_commit_delay_seconds: 10ms,50ms,100ms,500ms,1s,3s,5s,10s,30s
+        message_broadcast_chat_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s,5s
+        message_broadcast_update_duration_seconds: 1ms,5ms,10ms,50ms,100ms,500ms,1s,3s,5s,10s
       percentiles:
         http.server.requests: 0.5, 0.95, 0.99
         ws_send_duration: 0.95, 0.99
+        ws_enter_room_ack_duration_seconds: 0.5, 0.95, 0.99
+        login_permit_hold_duration_seconds: 0.5, 0.95, 0.99
+        bcrypt_permit_wait_duration_seconds: 0.5, 0.95, 0.99
+        login_db_query_duration_seconds: 0.5, 0.95, 0.99
+        message_flow_duration_seconds: 0.5, 0.95, 0.99
+        message_idempotency_check_duration_seconds: 0.5, 0.95, 0.99
+        message_cursor_update_duration_seconds: 0.5, 0.95, 0.99
+        message_data_load_duration_seconds: 0.5, 0.95, 0.99
+        message_update_build_duration_seconds: 0.5, 0.95, 0.99
+        message_after_commit_delay_seconds: 0.5, 0.95, 0.99
+        message_broadcast_chat_duration_seconds: 0.5, 0.95, 0.99
+        message_broadcast_update_duration_seconds: 0.5, 0.95, 0.99
 
   prometheus:
     metrics:

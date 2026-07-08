@@ -68,8 +68,20 @@ public class MessageBroadcastListener {
                 event.getPreviousLastReadChatId(),
                 event.getCurrentLastReadChatId()
         );
-        sendToSpaceSessions(event.getChatRoomId(), readEvent);
-        sendUpdateChatRoom(event.getUpdatesByMemberId());
+
+        Timer.Sample readEventBroadcastSample = Timer.start(meterRegistry);
+        try {
+            sendToSpaceSessions(event.getChatRoomId(), readEvent);
+        } finally {
+            readEventBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.READ_EVENT_BROADCAST_DURATION));
+        }
+
+        Timer.Sample readUpdateChatRoomSendSample = Timer.start(meterRegistry);
+        try {
+            sendUpdateChatRoom(event.getUpdatesByMemberId());
+        } finally {
+            readUpdateChatRoomSendSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_CHAT_ROOM_SEND_DURATION));
+        }
     }
 
     @Async("broadcastExecutor")

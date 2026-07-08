@@ -49,21 +49,39 @@ public class BroadcastDataBuilder {
             return Map.of();
         }
 
-        Space space = spaceRepository.findById(chatRoomId).orElseThrow(
-                () -> new CustomException(ErrorCode.SPACE_NOT_FOUND)
-        );
+        Timer.Sample spaceLoadSample = Timer.start(meterRegistry);
+        Space space;
+        try {
+            space = spaceRepository.findById(chatRoomId).orElseThrow(
+                    () -> new CustomException(ErrorCode.SPACE_NOT_FOUND)
+            );
+        } finally {
+            spaceLoadSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_SPACE_LOAD_DURATION));
+        }
 
-        Message lastChat = messageRepository
-                .findLastMessageBy(chatRoomId, PageRequest.of(0, 1))
-                .stream().findFirst().orElse(null);
+        Timer.Sample lastMessageLoadSample = Timer.start(meterRegistry);
+        Message lastChat;
+        try {
+            lastChat = messageRepository
+                    .findLastMessageBy(chatRoomId, PageRequest.of(0, 1))
+                    .stream().findFirst().orElse(null);
+        } finally {
+            lastMessageLoadSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_LAST_MESSAGE_LOAD_DURATION));
+        }
 
-        Map<Long, Long> unreadCountMap = spaceMemberRepository
-                .findMemberUnreadMessageCountsBy(chatRoomId, new ArrayList<>(targetMemberIds))
-                .stream()
-                .collect(Collectors.toMap(
-                        MemberUnreadCount::getMemberId,
-                        MemberUnreadCount::getUnreadMessageCount
-                ));
+        Timer.Sample unreadCountLoadSample = Timer.start(meterRegistry);
+        Map<Long, Long> unreadCountMap;
+        try {
+            unreadCountMap = spaceMemberRepository
+                    .findMemberUnreadMessageCountsBy(chatRoomId, new ArrayList<>(targetMemberIds))
+                    .stream()
+                    .collect(Collectors.toMap(
+                            MemberUnreadCount::getMemberId,
+                            MemberUnreadCount::getUnreadMessageCount
+                    ));
+        } finally {
+            unreadCountLoadSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_UNREAD_COUNT_LOAD_DURATION));
+        }
 
         return targetMemberIds.stream()
                 .collect(Collectors.toMap(

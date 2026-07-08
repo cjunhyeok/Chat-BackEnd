@@ -234,21 +234,34 @@ public class MessageService {
     public void onReadUpTo(Long memberId, Long chatRoomId, Long lastReadMessageId) {
         IdValidator.requireMessageId(lastReadMessageId);
 
-        if (!messageRepository.existsByIdAndSpaceId(lastReadMessageId, chatRoomId)) {
-            throw new CustomException(ErrorCode.MESSAGE_NOT_FOUND);
+        Timer.Sample readUpToSample = Timer.start(meterRegistry);
+        Long previousLastReadChatId;
+        Map<Long, UpdateChatRoom> updatesByMemberId;
+        try {
+            if (!messageRepository.existsByIdAndSpaceId(lastReadMessageId, chatRoomId)) {
+                throw new CustomException(ErrorCode.MESSAGE_NOT_FOUND);
+            }
+
+            previousLastReadChatId =
+                    spaceMemberRepository.findLastReadMessageIdBy(memberId, chatRoomId);
+
+            int updateCount =
+                    spaceMemberRepository.updateLastReadMessageId(memberId, chatRoomId, lastReadMessageId);
+
+            if (updateCount == 0) {
+                return;
+            }
+
+            Timer.Sample updateBuildSample = Timer.start(meterRegistry);
+            try {
+                updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
+            } finally {
+                updateBuildSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_CHAT_ROOM_BUILD_DURATION));
+            }
+        } finally {
+            readUpToSample.stop(meterRegistry.timer(MessageMetricNames.READ_UP_TO_DURATION));
         }
 
-        Long previousLastReadChatId =
-                spaceMemberRepository.findLastReadMessageIdBy(memberId, chatRoomId);
-
-        int updateCount =
-                spaceMemberRepository.updateLastReadMessageId(memberId, chatRoomId, lastReadMessageId);
-
-        if (updateCount == 0) {
-            return;
-        }
-
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
         publisher.publishEvent(new PublishReadEvent(
                 memberId,
                 chatRoomId,
