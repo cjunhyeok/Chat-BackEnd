@@ -12,6 +12,7 @@ public enum MessageType {
     ENTER_ROOM("채팅방 입장 요청"),
     ENTER_ROOM_ACK("채팅방 입장 성공 응답"),
     UPDATE_CHAT_ROOM("채팅방 목록 갱신"),
+    ROOM_MESSAGE_SUMMARY_UPDATED("채팅방 마지막 메시지 요약 갱신"),
     READ_EVENT("읽음 이벤트"),
     READ_UP_TO("읽음 처리 요청"),
     ROOM_ACTIVE("방 활성화"),

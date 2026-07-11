@@ -421,8 +421,8 @@ class IntegrationTextSocketHandlerTest {
     }
 
     @Test
-    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT와 UPDATE_CHAT_ROOM을 수신한다.")
-    void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT와_UPDATE_CHAT_ROOM을_수신한다() throws ExecutionException, InterruptedException, IOException {
+    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT만 수신하고 UPDATE_CHAT_ROOM은 수신하지 않는다.")
+    void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT만_수신한다() throws ExecutionException, InterruptedException, IOException {
         // given
         String username = "username";
         Member member = memberFixture.saveEncryptPasswordBy(username);
@@ -440,7 +440,7 @@ class IntegrationTextSocketHandlerTest {
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
         headers.add("Cookie", "JSESSIONID=" + JSessionId);
 
-        CountDownLatch latch = new CountDownLatch(2);
+        CountDownLatch latch = new CountDownLatch(1);
         List<String> receivedMessages = new ArrayList<>();
         TestWebSocketHandler handler = new TestWebSocketHandler(memberId, receivedMessages, latch);
 
@@ -464,16 +464,15 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
 
-        // then: READ_EVENT(room 세션 broadcast) + UPDATE_CHAT_ROOM(요청자 개인화) = 2건
+        // then: READ_EVENT(room 세션 broadcast)만 발생, UPDATE_CHAT_ROOM은 더 이상 생성되지 않는다
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
-        assertThat(receivedMessages).hasSize(2);
 
-        List<String> messageTypes = new ArrayList<>();
-        for (String raw : receivedMessages) {
-            messageTypes.add(objectMapper.readTree(raw).get("messageType").asText());
-        }
-        assertThat(messageTypes).containsExactlyInAnyOrder("READ_EVENT", "UPDATE_CHAT_ROOM");
+        // UPDATE_CHAT_ROOM이 뒤늦게라도 오지 않는지 짧게 추가 대기 후 재확인
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(receivedMessages).hasSize(1);
+        assertThat(objectMapper.readTree(receivedMessages.get(0)).get("messageType").asText())
+                .isEqualTo("READ_EVENT");
     }
 
     @Test

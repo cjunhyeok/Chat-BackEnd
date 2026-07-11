@@ -8,8 +8,6 @@ import com.chat.repository.dtos.DiscussionSummary;
 import com.chat.repository.dtos.MessageUnreadMemberCount;
 import com.chat.service.dtos.MessageHistory;
 import com.chat.service.dtos.MessageHistoryResponse;
-import com.chat.service.dtos.SaveMessageData;
-import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishReadEvent;
 import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.valid.IdValidator;
@@ -35,8 +33,6 @@ public class MessageService {
 
     private final ApplicationEventPublisher publisher;
 
-    private final BroadcastDataBuilder broadcastDataBuilder;
-
     private final MeterRegistry meterRegistry;
 
     private final MessageRepository messageRepository;
@@ -45,23 +41,8 @@ public class MessageService {
     private final MemberRepository memberRepository;
     private final DiscussionRepository discussionRepository;
 
-    public SaveMessageData findMessageData(Long chatId) {
-        Timer.Sample dataLoadSample = Timer.start(meterRegistry);
-        try {
-            Message findChat = messageRepository.findById(chatId).orElseThrow(
-                    () -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND)
-            );
-            Long unreadMemberCount = spaceMemberRepository.countMessageUnreadMembers(chatId);
-
-            return SaveMessageData
-                    .builder()
-                    .chatId(findChat.getId())
-                    .createdDate(findChat.getCreatedDate())
-                    .unreadMemberCount(unreadMemberCount)
-                    .build();
-        } finally {
-            dataLoadSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_DATA_LOAD_DURATION));
-        }
+    public Long countMessageUnreadMembers(Long messageId) {
+        return spaceMemberRepository.countMessageUnreadMembers(messageId);
     }
 
     @Transactional
@@ -71,6 +52,11 @@ public class MessageService {
 
     @Transactional
     public Long saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
+        return saveMessageEntity(senderId, chatRoomId, message, clientMessageId).getId();
+    }
+
+    @Transactional
+    public Message saveMessageEntity(Long senderId, Long chatRoomId, String message, String clientMessageId) {
 
         if (clientMessageId != null) {
             Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
@@ -81,7 +67,7 @@ public class MessageService {
                 idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
             }
             if (existing.isPresent()) {
-                return existing.get().getId();
+                return existing.get();
             }
         }
 
@@ -95,7 +81,7 @@ public class MessageService {
         Message savedChat = messageRepository.save(Message.of(message, findSender, findChatRoom, clientMessageId));
         updateSenderCursorOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
 
-        return savedChat.getId();
+        return savedChat;
     }
 
     private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
@@ -156,13 +142,11 @@ public class MessageService {
             );
 
             if (updatedCount > 0) {
-                Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
                 publisher.publishEvent(new PublishReadEvent(
                         memberId,
                         chatRoomId,
                         lastReadMessageId,
-                        currentLastReadChatId,
-                        updatesByMemberId
+                        currentLastReadChatId
                 ));
             }
         }
@@ -220,13 +204,11 @@ public class MessageService {
             return;
         }
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
         publisher.publishEvent(new PublishReadEvent(
                 memberId,
                 chatRoomId,
                 previousLastReadChatId,
-                latestChatId,
-                updatesByMemberId
+                latestChatId
         ));
     }
 
@@ -236,7 +218,6 @@ public class MessageService {
 
         Timer.Sample readUpToSample = Timer.start(meterRegistry);
         Long previousLastReadChatId;
-        Map<Long, UpdateChatRoom> updatesByMemberId;
         try {
             if (!messageRepository.existsByIdAndSpaceId(lastReadMessageId, chatRoomId)) {
                 throw new CustomException(ErrorCode.MESSAGE_NOT_FOUND);
@@ -251,23 +232,16 @@ public class MessageService {
             if (updateCount == 0) {
                 return;
             }
-
-            Timer.Sample updateBuildSample = Timer.start(meterRegistry);
-            try {
-                updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
-            } finally {
-                updateBuildSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_CHAT_ROOM_BUILD_DURATION));
-            }
         } finally {
             readUpToSample.stop(meterRegistry.timer(MessageMetricNames.READ_UP_TO_DURATION));
         }
 
+        // READ_UP_TO는 cursor update + READ_EVENT 발행까지만 수행한다.
         publisher.publishEvent(new PublishReadEvent(
                 memberId,
                 chatRoomId,
                 previousLastReadChatId,
-                lastReadMessageId,
-                updatesByMemberId
+                lastReadMessageId
         ));
     }
 }

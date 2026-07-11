@@ -1,6 +1,7 @@
 package com.chat.socket.listener;
 
 import com.chat.service.dtos.chat.ReadEvent;
+import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishDiscussionMessageEvent;
 import com.chat.socket.event.PublishMessageEvent;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -51,12 +53,7 @@ public class MessageBroadcastListener {
             chatBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_BROADCAST_CHAT_DURATION));
         }
 
-        Timer.Sample updateBroadcastSample = Timer.start(meterRegistry);
-        try {
-            sendUpdateChatRoom(event.getUpdatesByMemberId());
-        } finally {
-            updateBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_BROADCAST_UPDATE_DURATION));
-        }
+        sendRoomMessageSummaryUpdated(event.getRoomMessageSummaryUpdated(), event.getRecipientMemberIds());
     }
 
     @Async("broadcastExecutor")
@@ -74,13 +71,6 @@ public class MessageBroadcastListener {
             sendToSpaceSessions(event.getChatRoomId(), readEvent);
         } finally {
             readEventBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.READ_EVENT_BROADCAST_DURATION));
-        }
-
-        Timer.Sample readUpdateChatRoomSendSample = Timer.start(meterRegistry);
-        try {
-            sendUpdateChatRoom(event.getUpdatesByMemberId());
-        } finally {
-            readUpdateChatRoomSendSample.stop(meterRegistry.timer(MessageMetricNames.READ_UPDATE_CHAT_ROOM_SEND_DURATION));
         }
     }
 
@@ -105,6 +95,16 @@ public class MessageBroadcastListener {
                 .forEach((memberId, updateChatRoom) -> {
                     send(websocketSessionManager.getSessionBy(memberId), updateChatRoom, updateChatRoom.getChatRoomId());
                 });
+    }
+
+    private void sendRoomMessageSummaryUpdated(RoomMessageSummaryUpdated roomMessageSummaryUpdated, Set<Long> targetMemberIds) {
+        if (roomMessageSummaryUpdated == null) {
+            return;
+        }
+
+        for (Long memberId : targetMemberIds) {
+            send(websocketSessionManager.getSessionBy(memberId), roomMessageSummaryUpdated, roomMessageSummaryUpdated.getChatRoomId());
+        }
     }
 
     private void send(Collection<WebSocketSession> sessions, Object payload, Long chatRoomId) {

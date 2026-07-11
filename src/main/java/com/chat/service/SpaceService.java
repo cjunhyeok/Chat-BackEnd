@@ -9,9 +9,9 @@ import com.chat.exception.CustomException;
 import com.chat.exception.ErrorCode;
 import com.chat.repository.*;
 import com.chat.repository.dtos.RoomUnreadMessageCount;
-import com.chat.service.dtos.SaveMessageData;
 import com.chat.service.dtos.SaveSpaceDTO;
 import com.chat.service.dtos.chat.BroadcastChat;
+import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SendChat;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishMessageEvent;
@@ -55,28 +55,27 @@ public class SpaceService {
         Timer.Sample flowSample = Timer.start(meterRegistry);
         try {
             Long chatRoomId = sendChat.getChatRoomId();
-            Long savedMessageId = messageService.saveMessage(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
+            Message savedMessage = messageService.saveMessageEntity(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
 
-            Member sender = memberRepository.findById(memberId).orElseThrow(
-                    () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
-            );
-
-            SaveMessageData messageData = messageService.findMessageData(savedMessageId);
+            Long unreadMemberCount = messageService.countMessageUnreadMembers(savedMessage.getId());
 
             BroadcastChat broadcastChat = BroadcastChat.builder()
                     .messageType(MessageType.CHAT_MESSAGE)
                     .senderId(memberId)
-                    .senderNickname(sender.getNickname())
+                    .senderNickname(savedMessage.getMember().getNickname())
                     .chatRoomId(chatRoomId)
-                    .message(sendChat.getMessage())
-                    .chatId(messageData.getChatId())
-                    .unreadMemberCount(messageData.getUnreadMemberCount())
-                    .createdDate(messageData.getCreatedDate())
-                    .clientMessageId(sendChat.getClientMessageId())
+                    .message(savedMessage.getContent())
+                    .chatId(savedMessage.getId())
+                    .unreadMemberCount(unreadMemberCount)
+                    .createdDate(savedMessage.getCreatedDate())
+                    .clientMessageId(savedMessage.getClientMessageId())
                     .build();
 
-            Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-            publisher.publishEvent(new PublishMessageEvent(broadcastChat, chatRoomId, updatesByMemberId, System.nanoTime()));
+            RoomMessageSummaryUpdated roomMessageSummaryUpdated = RoomMessageSummaryUpdated.from(savedMessage);
+            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
+
+            publisher.publishEvent(new PublishMessageEvent(
+                    broadcastChat, chatRoomId, roomMessageSummaryUpdated, recipientMemberIds, System.nanoTime()));
         } finally {
             flowSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_FLOW_DURATION));
         }

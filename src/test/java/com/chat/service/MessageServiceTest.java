@@ -7,7 +7,6 @@ import com.chat.fixture.TestDataFixture;
 import com.chat.repository.*;
 import com.chat.service.dtos.MessageHistory;
 import com.chat.service.dtos.MessageHistoryResponse;
-import com.chat.service.dtos.SaveMessageData;
 import com.chat.socket.event.PublishReadEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.utils.consts.SessionConst;
@@ -160,8 +159,8 @@ class MessageServiceTest {
     }
 
     @Test
-    @DisplayName("특정 채팅에 대한 상세정보를 조회한다.")
-    void findChatDataTest() {
+    @DisplayName("메시지의 unreadMemberCount를 조회한다.")
+    void countMessageUnreadMembersTest() {
         // given
         Member sender = fixture.savedMemberBy("sender");
         Member receiver1 = fixture.savedMemberBy("receiver1");
@@ -179,12 +178,10 @@ class MessageServiceTest {
         Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message);
 
         // when
-        SaveMessageData chatData = messageService.findMessageData(savedChatId);
+        Long unreadMemberCount = messageService.countMessageUnreadMembers(savedChatId);
 
         // then
-        assertThat(chatData.getChatId()).isEqualTo(savedChatId);
-        assertThat(chatData.getUnreadMemberCount()).isEqualTo(2);
-        assertThat(chatData.getCreatedDate()).isNotNull();
+        assertThat(unreadMemberCount).isEqualTo(2);
     }
 
     @Test
@@ -306,10 +303,6 @@ class MessageServiceTest {
         assertThat(event.getMemberId()).isEqualTo(secondMember.getId());
         assertThat(event.getChatRoomId()).isEqualTo(chatRoomId);
         assertThat(event.getPreviousLastReadChatId()).isNull(); // 이전에 읽은 기록 없음
-        // 읽음 처리 시 나(secondMember)에게만 UPDATE_CHAT_ROOM을 보내야 함
-        assertThat(event.getUpdatesByMemberId()).hasSize(1);
-        assertThat(event.getUpdatesByMemberId()).containsKey(secondMember.getId());
-        assertThat(event.getUpdatesByMemberId()).doesNotContainKey(firstMember.getId());
     }
 
     @Test
@@ -847,9 +840,6 @@ class MessageServiceTest {
         assertThat(event.getMemberId()).isEqualTo(receiver.getId());
         assertThat(event.getChatRoomId()).isEqualTo(chatRoomId);
         assertThat(event.getPreviousLastReadChatId()).isNull(); // 이전 cursor = null
-        assertThat(event.getUpdatesByMemberId()).hasSize(1);
-        assertThat(event.getUpdatesByMemberId()).containsKey(receiver.getId());
-        assertThat(event.getUpdatesByMemberId()).doesNotContainKey(sender.getId());
     }
 
     @Test
@@ -917,27 +907,6 @@ class MessageServiceTest {
         assertThat(event.getChatRoomId()).isEqualTo(chatRoomId);
         assertThat(event.getPreviousLastReadChatId()).isNull(); // 이전에 읽은 기록 없음
         assertThat(event.getCurrentLastReadChatId()).isEqualTo(chatId);
-    }
-
-    @Test
-    @DisplayName("READ_UP_TO 성공 시 updatesByMemberId에는 요청자 memberId만 포함된다.")
-    void onReadUpTo_publishesUpdateChatRoomForRequesterOnlyTest(ApplicationEvents events) {
-        // given
-        Member sender = fixture.savedMemberBy("sender");
-        Member receiver = fixture.savedMemberBy("receiver");
-        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
-        Long chatRoomId = chatRoom.getId();
-
-        Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello");
-
-        // when
-        messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
-
-        // then
-        PublishReadEvent event = events.stream(PublishReadEvent.class).toList().get(0);
-        assertThat(event.getUpdatesByMemberId()).hasSize(1);
-        assertThat(event.getUpdatesByMemberId()).containsKey(receiver.getId());
-        assertThat(event.getUpdatesByMemberId()).doesNotContainKey(sender.getId());
     }
 
     @Test
