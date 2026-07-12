@@ -2,10 +2,12 @@ package com.chat.socket.listener;
 
 import com.chat.service.dtos.chat.ReadEvent;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
+import com.chat.service.dtos.chat.SpaceTitleChanged;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishDiscussionMessageEvent;
 import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishReadEvent;
+import com.chat.socket.event.PublishSpaceTitleChangedEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
@@ -78,6 +80,15 @@ public class MessageBroadcastListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishUpdateEventToSessions(PublishUpdateEvent event) {
         sendUpdateChatRoom(event.getUpdatesByMemberId());
+    }
+
+    @Async("broadcastExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void publishSpaceTitleChangedToSessions(PublishSpaceTitleChangedEvent event) {
+        SpaceTitleChanged payload = event.getSpaceTitleChanged();
+        for (Long memberId : event.getRecipientMemberIds()) {
+            send(websocketSessionManager.getSessionBy(memberId), payload, payload.getChatRoomId());
+        }
     }
 
     @Async("broadcastExecutor")

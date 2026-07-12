@@ -1,5 +1,6 @@
 package com.chat.service;
 
+import com.chat.api.response.chatroom.RenameSpaceResponse;
 import com.chat.api.response.chatroom.SpaceInviteCodeResponse;
 import com.chat.api.response.chatroom.SpaceInviteInfoResponse;
 import com.chat.api.response.chatroom.SpaceMemberResponse;
@@ -13,8 +14,10 @@ import com.chat.service.dtos.SaveSpaceDTO;
 import com.chat.service.dtos.chat.BroadcastChat;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SendChat;
+import com.chat.service.dtos.chat.SpaceTitleChanged;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishMessageEvent;
+import com.chat.socket.event.PublishSpaceTitleChangedEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.utils.consts.MessageMetricNames;
@@ -184,7 +187,7 @@ public class SpaceService {
     }
 
     @Transactional
-    public void renameSpace(Long memberId, Long chatRoomId, String title) {
+    public RenameSpaceResponse renameSpace(Long memberId, Long chatRoomId, String title) {
 
         SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
         if (participant == null) {
@@ -193,10 +196,14 @@ public class SpaceService {
 
         Space space = spaceRepository.findById(chatRoomId)
                 .orElseThrow(() -> new CustomException(ErrorCode.SPACE_NOT_FOUND));
-        space.rename(title);
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
+        boolean changed = space.rename(title);
+        if (changed) {
+            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
+            publisher.publishEvent(new PublishSpaceTitleChangedEvent(SpaceTitleChanged.from(space), recipientMemberIds));
+        }
+
+        return RenameSpaceResponse.from(space);
     }
 
     public List<SpaceMemberResponse> findSpaceMembers(Long memberId, Long chatRoomId) {

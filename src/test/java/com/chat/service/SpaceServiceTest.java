@@ -1,5 +1,6 @@
 package com.chat.service;
 
+import com.chat.api.response.chatroom.RenameSpaceResponse;
 import com.chat.api.response.chatroom.SpaceInviteCodeResponse;
 import com.chat.api.response.chatroom.SpaceInviteInfoResponse;
 import com.chat.api.response.chatroom.SpaceMemberResponse;
@@ -214,18 +215,37 @@ class SpaceServiceTest {
     }
 
     @Test
-    @DisplayName("Space 이름을 변경한다.")
+    @DisplayName("Space 이름을 변경하면 DB에 반영되고 응답에 chatRoomId와 변경된 title이 담긴다.")
     void Space_이름을_변경한다() {
         // given
         Member me = fixture.savedMemberBy("me");
         Space space = fixture.savedChatRoomBy("original", List.of(me));
 
         // when
-        spaceService.renameSpace(me.getId(), space.getId(), "changed");
+        RenameSpaceResponse response = spaceService.renameSpace(me.getId(), space.getId(), "changed");
 
         // then
         Space found = spaceRepository.findById(space.getId()).get();
         assertThat(found.getTitle()).isEqualTo("changed");
+        assertThat(response.getChatRoomId()).isEqualTo(space.getId());
+        assertThat(response.getTitle()).isEqualTo("changed");
+    }
+
+    @Test
+    @DisplayName("같은 title로 rename을 요청하면 title은 변경되지 않고 응답에는 현재 값이 담긴다.")
+    void 같은_title로_rename하면_변경되지_않고_현재값이_응답에_담긴다() {
+        // given
+        Member me = fixture.savedMemberBy("me");
+        Space space = fixture.savedChatRoomBy("original", List.of(me));
+
+        // when
+        RenameSpaceResponse response = spaceService.renameSpace(me.getId(), space.getId(), "original");
+
+        // then
+        Space found = spaceRepository.findById(space.getId()).get();
+        assertThat(found.getTitle()).isEqualTo("original");
+        assertThat(response.getChatRoomId()).isEqualTo(space.getId());
+        assertThat(response.getTitle()).isEqualTo("original");
     }
 
     @Test

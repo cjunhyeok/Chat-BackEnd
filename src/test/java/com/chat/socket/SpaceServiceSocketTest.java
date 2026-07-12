@@ -7,6 +7,7 @@ import com.chat.fixture.MemberFixture;
 import com.chat.fixture.SocketFixture;
 import com.chat.fixture.TestDataFixture;
 import com.chat.repository.MessageRepository;
+import com.chat.repository.SpaceRepository;
 import com.chat.service.MessageService;
 import com.chat.service.SpaceService;
 import com.chat.service.dtos.chat.BroadcastChat;
@@ -72,6 +73,8 @@ public class SpaceServiceSocketTest {
     private WebsocketSessionManager websocketSessionManager;
     @Autowired
     private MessageRepository messageRepository;
+    @Autowired
+    private SpaceRepository spaceRepository;
     @Autowired
     private MessageBroadcastListener messageBroadcastListener;
 
@@ -569,8 +572,8 @@ public class SpaceServiceSocketTest {
     }
 
     @Test
-    @DisplayName("Space 이름 변경 시 참여자에게 변경된 제목의 UPDATE_CHAT_ROOM이 전송된다.")
-    void Space_이름_변경_시_참여자에게_변경된_제목의_UPDATE_CHAT_ROOM이_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
+    @DisplayName("Space 이름 변경 시 room에 ENTER하지 않은 참여자에게도 SPACE_TITLE_CHANGED가 전송되고 UPDATE_CHAT_ROOM은 전송되지 않는다.")
+    void Space_이름_변경_시_참여자에게_SPACE_TITLE_CHANGED가_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
         // given
         String firstUsername = "first";
         Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -579,28 +582,128 @@ public class SpaceServiceSocketTest {
         Space space = fixture.savedChatRoomBy("oldTitle", List.of(first));
         Long spaceId = space.getId();
 
-        // first가 WS 연결 및 방 입장
+        // first가 WS 연결만 하고, room(spaceManager)에는 입장하지 않는다 — ENTER 여부와 무관하게 전송되는지 검증
         String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
         CountDownLatch latch = new CountDownLatch(1);
         List<String> firstMessages = new ArrayList<>();
         socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, latch);
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
 
-        WebSocketSession firstServerSession = websocketSessionManager.getSessionBy(firstId).iterator().next();
-        spaceManager.addSessionToSpace(firstServerSession, spaceId);
-
         // when: 채팅방 이름 변경
         spaceService.renameSpace(firstId, spaceId, "newTitle");
 
-        // then: UPDATE_CHAT_ROOM에 변경된 title 포함
+        // then: SPACE_TITLE_CHANGED에 DB에 저장된 title이 그대로 포함되고, UPDATE_CHAT_ROOM은 전송되지 않는다
         boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isTrue();
         assertThat(firstMessages).isNotEmpty();
 
+        Space found = spaceRepository.findById(spaceId).orElseThrow();
         JsonNode node = objectMapper.readTree(firstMessages.get(0));
-        assertThat(node.get("messageType").asText()).isEqualTo("UPDATE_CHAT_ROOM");
+        assertThat(node.get("messageType").asText()).isEqualTo("SPACE_TITLE_CHANGED");
         assertThat(node.get("chatRoomId").asLong()).isEqualTo(spaceId);
-        assertThat(node.get("title").asText()).isEqualTo("newTitle");
+        assertThat(node.get("title").asText()).isEqualTo(found.getTitle());
+        assertThat(found.getTitle()).isEqualTo("newTitle");
+
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        List<String> messageTypes = firstMessages.stream()
+                .map(msg -> readTree(msg).get("messageType").asText())
+                .collect(Collectors.toList());
+        assertThat(messageTypes).doesNotContain("UPDATE_CHAT_ROOM");
+    }
+
+    @Test
+    @DisplayName("같은 title로 rename을 요청하면 SPACE_TITLE_CHANGED가 발행되지 않는다.")
+    void 같은_title로_rename하면_SPACE_TITLE_CHANGED가_발행되지_않는다() throws ExecutionException, InterruptedException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        Space space = fixture.savedChatRoomBy("sameTitle", List.of(first));
+        Long spaceId = space.getId();
+
+        String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
+        List<String> firstMessages = new ArrayList<>();
+        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, new CountDownLatch(1));
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when: 기존과 동일한 title로 rename 요청
+        spaceService.renameSpace(firstId, spaceId, "sameTitle");
+
+        // then: 변경이 없으므로 아무 메시지도 수신되지 않는다
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(firstMessages).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Space 이름 변경 시 요청자의 모든 활성 세션이 SPACE_TITLE_CHANGED를 수신한다.")
+    void Space_이름_변경_시_요청자의_모든_활성_세션이_수신한다() throws ExecutionException, InterruptedException, JsonProcessingException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        Space space = fixture.savedChatRoomBy("oldTitle", List.of(first));
+        Long spaceId = space.getId();
+
+        // first가 두 개의 세션(다중 탭/기기)으로 동시 접속
+        CountDownLatch firstSessionLatch = new CountDownLatch(1);
+        List<String> firstSessionMessages = new ArrayList<>();
+        String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
+        socketFixture.connectSocket(firstJSessionId, firstId, port, firstSessionMessages, firstSessionLatch);
+
+        CountDownLatch secondSessionLatch = new CountDownLatch(1);
+        List<String> secondSessionMessages = new ArrayList<>();
+        String secondJSessionId = memberFixture.loginRequestBy(firstUsername, port);
+        socketFixture.connectSocket(secondJSessionId, firstId, port, secondSessionMessages, secondSessionLatch);
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        assertThat(websocketSessionManager.getSessionBy(firstId)).hasSize(2);
+
+        // when: 요청자 본인이 rename 수행
+        spaceService.renameSpace(firstId, spaceId, "newTitle");
+
+        // then: 두 세션 모두 SPACE_TITLE_CHANGED를 수신한다
+        assertThat(firstSessionLatch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        assertThat(secondSessionLatch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(readTree(firstSessionMessages.get(0)).get("messageType").asText()).isEqualTo("SPACE_TITLE_CHANGED");
+        assertThat(readTree(secondSessionMessages.get(0)).get("messageType").asText()).isEqualTo("SPACE_TITLE_CHANGED");
+    }
+
+    @Test
+    @DisplayName("Space 비참여자는 rename 시 SPACE_TITLE_CHANGED를 수신하지 않는다.")
+    void Space_비참여자는_SPACE_TITLE_CHANGED를_수신하지_않는다() throws ExecutionException, InterruptedException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        // outsider는 Space 참여자가 아니다
+        String outsiderUsername = "outsider";
+        Member outsider = memberFixture.saveEncryptPasswordBy(outsiderUsername);
+        Long outsiderId = outsider.getId();
+
+        Space space = fixture.savedChatRoomBy("oldTitle", List.of(first));
+        Long spaceId = space.getId();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        List<String> firstMessages = new ArrayList<>();
+        String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
+        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, latch);
+
+        List<String> outsiderMessages = new ArrayList<>();
+        String outsiderJSessionId = memberFixture.loginRequestBy(outsiderUsername, port);
+        socketFixture.connectSocket(outsiderJSessionId, outsiderId, port, outsiderMessages, new CountDownLatch(1));
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when
+        spaceService.renameSpace(firstId, spaceId, "newTitle");
+
+        // then: 참여자 first는 수신하지만 비참여자 outsider는 아무것도 받지 않는다
+        assertThat(latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(outsiderMessages).isEmpty();
     }
 
     @Test
