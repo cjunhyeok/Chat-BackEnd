@@ -14,9 +14,11 @@ import com.chat.service.dtos.SaveSpaceDTO;
 import com.chat.service.dtos.chat.BroadcastChat;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SendChat;
+import com.chat.service.dtos.chat.SpaceInvited;
 import com.chat.service.dtos.chat.SpaceTitleChanged;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishMessageEvent;
+import com.chat.socket.event.PublishSpaceInvitedEvent;
 import com.chat.socket.event.PublishSpaceTitleChangedEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
@@ -279,13 +281,19 @@ public class SpaceService {
         );
 
         List<Member> invitees = memberRepository.findAllById(inviteeIds);
+        Set<Long> newlyInvitedMemberIds = new HashSet<>();
         for (Member invitee : invitees) {
             if (!existingMemberIds.contains(invitee.getId())) {
                 spaceMemberRepository.save(SpaceMember.of(invitee, space));
+                newlyInvitedMemberIds.add(invitee.getId());
             }
         }
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
+        if (!newlyInvitedMemberIds.isEmpty()) {
+            SpaceInvited payload = SpaceInvited.builder()
+                    .messageType(MessageType.SPACE_INVITED)
+                    .build();
+            publisher.publishEvent(new PublishSpaceInvitedEvent(payload, chatRoomId, newlyInvitedMemberIds));
+        }
     }
 }

@@ -707,8 +707,91 @@ public class SpaceServiceSocketTest {
     }
 
     @Test
-    @DisplayName("멤버 초대 시 기존 참여자에게 UPDATE_CHAT_ROOM이 전송된다.")
-    void 멤버_초대_시_기존_참여자에게_UPDATE_CHAT_ROOM이_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
+    @DisplayName("신규 초대자는 room에 ENTER하지 않아도 SPACE_INVITED를 수신하고 UPDATE_CHAT_ROOM은 포함되지 않는다.")
+    void 신규_초대자는_room에_ENTER하지_않아도_SPACE_INVITED를_수신한다() throws ExecutionException, InterruptedException, JsonProcessingException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second";
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        // 초기 방: first만 참여
+        Space space = fixture.savedChatRoomBy("title", List.of(first));
+        Long spaceId = space.getId();
+
+        // second는 WS 연결만 하고 room(spaceManager)에는 입장하지 않는다
+        String secondJSessionId = memberFixture.loginRequestBy(secondUsername, port);
+        CountDownLatch latch = new CountDownLatch(1);
+        List<String> secondMessages = new ArrayList<>();
+        socketFixture.connectSocket(secondJSessionId, secondId, port, secondMessages, latch);
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when: first가 second를 초대
+        spaceService.inviteMembers(firstId, spaceId, Set.of(secondId));
+
+        // then: second가 SPACE_INVITED를 수신하고, payload에는 messageType만 존재하며 UPDATE_CHAT_ROOM은 없다
+        boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(received).isTrue();
+        assertThat(secondMessages).isNotEmpty();
+
+        JsonNode node = objectMapper.readTree(secondMessages.get(0));
+        assertThat(node.get("messageType").asText()).isEqualTo("SPACE_INVITED");
+        assertThat(node.size()).isEqualTo(1);
+        assertThat(node.has("chatRoomId")).isFalse();
+
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        List<String> messageTypes = secondMessages.stream()
+                .map(msg -> readTree(msg).get("messageType").asText())
+                .collect(Collectors.toList());
+        assertThat(messageTypes).doesNotContain("UPDATE_CHAT_ROOM");
+    }
+
+    @Test
+    @DisplayName("신규 초대자의 모든 활성 세션이 SPACE_INVITED를 수신한다.")
+    void 신규_초대자의_모든_활성_세션이_SPACE_INVITED를_수신한다() throws ExecutionException, InterruptedException, JsonProcessingException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second";
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        Space space = fixture.savedChatRoomBy("title", List.of(first));
+        Long spaceId = space.getId();
+
+        // second가 두 개의 세션(다중 탭/기기)으로 동시 접속
+        CountDownLatch firstSessionLatch = new CountDownLatch(1);
+        List<String> firstSessionMessages = new ArrayList<>();
+        String secondJSessionId1 = memberFixture.loginRequestBy(secondUsername, port);
+        socketFixture.connectSocket(secondJSessionId1, secondId, port, firstSessionMessages, firstSessionLatch);
+
+        CountDownLatch secondSessionLatch = new CountDownLatch(1);
+        List<String> secondSessionMessages = new ArrayList<>();
+        String secondJSessionId2 = memberFixture.loginRequestBy(secondUsername, port);
+        socketFixture.connectSocket(secondJSessionId2, secondId, port, secondSessionMessages, secondSessionLatch);
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        assertThat(websocketSessionManager.getSessionBy(secondId)).hasSize(2);
+
+        // when
+        spaceService.inviteMembers(firstId, spaceId, Set.of(secondId));
+
+        // then: 두 세션 모두 SPACE_INVITED를 수신한다
+        assertThat(firstSessionLatch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        assertThat(secondSessionLatch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(readTree(firstSessionMessages.get(0)).get("messageType").asText()).isEqualTo("SPACE_INVITED");
+        assertThat(readTree(secondSessionMessages.get(0)).get("messageType").asText()).isEqualTo("SPACE_INVITED");
+    }
+
+    @Test
+    @DisplayName("기존 참여자는 멤버 초대 시 SPACE_INVITED와 UPDATE_CHAT_ROOM을 모두 수신하지 않는다.")
+    void 기존_참여자는_초대_시_아무_이벤트도_수신하지_않는다() throws ExecutionException, InterruptedException {
         // given
         String firstUsername = "first";
         Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -724,9 +807,8 @@ public class SpaceServiceSocketTest {
 
         // first가 WS 연결 및 방 입장
         String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
-        CountDownLatch latch = new CountDownLatch(1);
         List<String> firstMessages = new ArrayList<>();
-        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, latch);
+        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, new CountDownLatch(1));
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
 
         WebSocketSession firstServerSession = websocketSessionManager.getSessionBy(firstId).iterator().next();
@@ -735,14 +817,111 @@ public class SpaceServiceSocketTest {
         // when: second를 초대
         spaceService.inviteMembers(firstId, spaceId, Set.of(secondId));
 
-        // then: 기존 참여자 first에게 UPDATE_CHAT_ROOM 전송
-        boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertThat(received).isTrue();
-        assertThat(firstMessages).isNotEmpty();
+        // then: 기존 참여자 first는 아무것도 받지 않는다
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(firstMessages).isEmpty();
+    }
 
-        JsonNode node = objectMapper.readTree(firstMessages.get(0));
-        assertThat(node.get("messageType").asText()).isEqualTo("UPDATE_CHAT_ROOM");
-        assertThat(node.get("chatRoomId").asLong()).isEqualTo(spaceId);
+    @Test
+    @DisplayName("Space 참여자도 초대 대상도 아닌 사용자는 초대 시 아무 이벤트도 받지 않는다.")
+    void Space_참여자도_초대_대상도_아닌_사용자는_초대_시_아무것도_받지_않는다() throws ExecutionException, InterruptedException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second";
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        // outsider는 Space 참여자도, 이번 초대 대상도 아니다
+        String outsiderUsername = "outsider";
+        Member outsider = memberFixture.saveEncryptPasswordBy(outsiderUsername);
+        Long outsiderId = outsider.getId();
+
+        Space space = fixture.savedChatRoomBy("title", List.of(first));
+        Long spaceId = space.getId();
+
+        List<String> outsiderMessages = new ArrayList<>();
+        String outsiderJSessionId = memberFixture.loginRequestBy(outsiderUsername, port);
+        socketFixture.connectSocket(outsiderJSessionId, outsiderId, port, outsiderMessages, new CountDownLatch(1));
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when
+        spaceService.inviteMembers(firstId, spaceId, Set.of(secondId));
+
+        // then
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(outsiderMessages).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이미 참여 중인 멤버만 다시 초대하면 SPACE_INVITED가 발행되지 않는다.")
+    void 이미_참여_중인_멤버만_다시_초대하면_SPACE_INVITED가_발행되지_않는다() throws ExecutionException, InterruptedException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second";
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        // second는 이미 참여 중
+        Space space = fixture.savedChatRoomBy("title", List.of(first, second));
+        Long spaceId = space.getId();
+
+        List<String> secondMessages = new ArrayList<>();
+        String secondJSessionId = memberFixture.loginRequestBy(secondUsername, port);
+        socketFixture.connectSocket(secondJSessionId, secondId, port, secondMessages, new CountDownLatch(1));
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when: 이미 참여 중인 second를 다시 초대
+        spaceService.inviteMembers(firstId, spaceId, Set.of(secondId));
+
+        // then: 이벤트 자체가 발행되지 않으므로 아무것도 수신되지 않는다
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(secondMessages).isEmpty();
+    }
+
+    @Test
+    @DisplayName("초대 대상에 신규 멤버와 기존 참여자가 섞여 있으면 신규 멤버만 SPACE_INVITED를 수신한다.")
+    void 신규_멤버와_기존_참여자가_섞인_초대에서는_신규_멤버만_수신한다() throws ExecutionException, InterruptedException, JsonProcessingException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second"; // 이미 참여 중
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        String thirdUsername = "third"; // 신규 초대 대상
+        Member third = memberFixture.saveEncryptPasswordBy(thirdUsername);
+        Long thirdId = third.getId();
+
+        Space space = fixture.savedChatRoomBy("title", List.of(first, second));
+        Long spaceId = space.getId();
+
+        List<String> secondMessages = new ArrayList<>();
+        String secondJSessionId = memberFixture.loginRequestBy(secondUsername, port);
+        socketFixture.connectSocket(secondJSessionId, secondId, port, secondMessages, new CountDownLatch(1));
+
+        CountDownLatch thirdLatch = new CountDownLatch(1);
+        List<String> thirdMessages = new ArrayList<>();
+        String thirdJSessionId = memberFixture.loginRequestBy(thirdUsername, port);
+        socketFixture.connectSocket(thirdJSessionId, thirdId, port, thirdMessages, thirdLatch);
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when: second(기존 참여자)와 third(신규)를 함께 초대
+        spaceService.inviteMembers(firstId, spaceId, Set.of(secondId, thirdId));
+
+        // then: third만 SPACE_INVITED를 수신하고, second는 아무것도 받지 않는다
+        assertThat(thirdLatch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        assertThat(readTree(thirdMessages.get(0)).get("messageType").asText()).isEqualTo("SPACE_INVITED");
+
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(secondMessages).isEmpty();
     }
 
     @Test

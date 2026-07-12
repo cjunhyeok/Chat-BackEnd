@@ -2,11 +2,13 @@ package com.chat.socket.listener;
 
 import com.chat.service.dtos.chat.ReadEvent;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
+import com.chat.service.dtos.chat.SpaceInvited;
 import com.chat.service.dtos.chat.SpaceTitleChanged;
 import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishDiscussionMessageEvent;
 import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishReadEvent;
+import com.chat.socket.event.PublishSpaceInvitedEvent;
 import com.chat.socket.event.PublishSpaceTitleChangedEvent;
 import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
@@ -88,6 +90,15 @@ public class MessageBroadcastListener {
         SpaceTitleChanged payload = event.getSpaceTitleChanged();
         for (Long memberId : event.getRecipientMemberIds()) {
             send(websocketSessionManager.getSessionBy(memberId), payload, payload.getChatRoomId());
+        }
+    }
+
+    @Async("broadcastExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void publishSpaceInvitedToSessions(PublishSpaceInvitedEvent event) {
+        SpaceInvited payload = event.getSpaceInvited();
+        for (Long memberId : event.getRecipientMemberIds()) {
+            send(websocketSessionManager.getSessionBy(memberId), payload, event.getChatRoomId());
         }
     }
 
