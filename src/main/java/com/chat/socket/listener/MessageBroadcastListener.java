@@ -4,13 +4,11 @@ import com.chat.service.dtos.chat.ReadEvent;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SpaceInvited;
 import com.chat.service.dtos.chat.SpaceTitleChanged;
-import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishDiscussionMessageEvent;
 import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishReadEvent;
 import com.chat.socket.event.PublishSpaceInvitedEvent;
 import com.chat.socket.event.PublishSpaceTitleChangedEvent;
-import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.MessageMetricNames;
@@ -30,7 +28,6 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Collection;
-import java.util.Map;
 import java.util.Set;
 
 @Slf4j
@@ -80,12 +77,6 @@ public class MessageBroadcastListener {
 
     @Async("broadcastExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishUpdateEventToSessions(PublishUpdateEvent event) {
-        sendUpdateChatRoom(event.getUpdatesByMemberId());
-    }
-
-    @Async("broadcastExecutor")
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishSpaceTitleChangedToSessions(PublishSpaceTitleChangedEvent event) {
         SpaceTitleChanged payload = event.getSpaceTitleChanged();
         for (Long memberId : event.getRecipientMemberIds()) {
@@ -110,13 +101,6 @@ public class MessageBroadcastListener {
 
     private void sendToSpaceSessions(Long chatRoomId, Object payload) {
         send(spaceManager.getWebSocketSessionBy(chatRoomId), payload, chatRoomId);
-    }
-
-    private void sendUpdateChatRoom(Map<Long, UpdateChatRoom> updatesByMemberId) {
-        updatesByMemberId
-                .forEach((memberId, updateChatRoom) -> {
-                    send(websocketSessionManager.getSessionBy(memberId), updateChatRoom, updateChatRoom.getChatRoomId());
-                });
     }
 
     private void sendRoomMessageSummaryUpdated(RoomMessageSummaryUpdated roomMessageSummaryUpdated, Set<Long> targetMemberIds) {

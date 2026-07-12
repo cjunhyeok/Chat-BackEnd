@@ -124,7 +124,7 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(chat));
 
-        // then: CHAT_ENTER 제거 → CHAT_MESSAGE + UPDATE_CHAT_ROOM = 2개
+        // then: CHAT_ENTER 제거 → CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED = 2개
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
         assertThat(receivedMessages).hasSize(2);
@@ -421,7 +421,7 @@ class IntegrationTextSocketHandlerTest {
     }
 
     @Test
-    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT만 수신하고 UPDATE_CHAT_ROOM은 수신하지 않는다.")
+    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT만 수신하고 다른 이벤트는 수신하지 않는다.")
     void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT만_수신한다() throws ExecutionException, InterruptedException, IOException {
         // given
         String username = "username";
@@ -464,11 +464,11 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
 
-        // then: READ_EVENT(room 세션 broadcast)만 발생, UPDATE_CHAT_ROOM은 더 이상 생성되지 않는다
+        // then: READ_EVENT(room 세션 broadcast)만 발생
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
 
-        // UPDATE_CHAT_ROOM이 뒤늦게라도 오지 않는지 짧게 추가 대기 후 재확인
+        // 다른 이벤트가 뒤늦게라도 오지 않는지 짧게 추가 대기 후 재확인
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
         assertThat(receivedMessages).hasSize(1);
         assertThat(objectMapper.readTree(receivedMessages.get(0)).get("messageType").asText())

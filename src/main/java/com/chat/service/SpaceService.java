@@ -16,11 +16,9 @@ import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SendChat;
 import com.chat.service.dtos.chat.SpaceInvited;
 import com.chat.service.dtos.chat.SpaceTitleChanged;
-import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishSpaceInvitedEvent;
 import com.chat.socket.event.PublishSpaceTitleChangedEvent;
-import com.chat.socket.event.PublishUpdateEvent;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.consts.SessionConst;
@@ -44,7 +42,6 @@ import java.util.stream.Collectors;
 public class SpaceService {
 
     private final ApplicationEventPublisher publisher;
-    private final BroadcastDataBuilder broadcastDataBuilder;
     private final SpaceManager spaceManager;
     private final MeterRegistry meterRegistry;
 
@@ -183,9 +180,6 @@ public class SpaceService {
                 spaceManager.removeSpaceSession(chatRoomId, session);
             }
         }
-
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
     }
 
     @Transactional

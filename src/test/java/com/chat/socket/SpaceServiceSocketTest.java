@@ -534,8 +534,8 @@ public class SpaceServiceSocketTest {
     }
 
     @Test
-    @DisplayName("Space 나가기 시 남은 참여자에게 UPDATE_CHAT_ROOM이 전송된다.")
-    void Space_나가기_시_남은_참여자에게_UPDATE_CHAT_ROOM이_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
+    @DisplayName("Space 나가기 시 room ENTER 여부와 무관하게 남은 참여자는 아무 이벤트도 수신하지 않는다.")
+    void Space_나가기_시_남은_참여자는_아무_이벤트도_수신하지_않는다() throws ExecutionException, InterruptedException {
         // given
         String firstUsername = "first";
         Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -548,27 +548,47 @@ public class SpaceServiceSocketTest {
         Space space = fixture.savedChatRoomBy("title", List.of(first, second));
         Long spaceId = space.getId();
 
-        // first가 WS 연결 및 방 입장
+        // first는 WS 연결만 하고 room(spaceManager)에는 입장하지 않는다 — ENTER 여부와 무관함을 함께 검증
         String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
-        CountDownLatch latch = new CountDownLatch(1);
         List<String> firstMessages = new ArrayList<>();
-        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, latch);
+        socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, new CountDownLatch(1));
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
-
-        WebSocketSession firstServerSession = websocketSessionManager.getSessionBy(firstId).iterator().next();
-        spaceManager.addSessionToSpace(firstServerSession, spaceId);
 
         // when: second가 채팅방 퇴장
         spaceService.leaveSpace(secondId, spaceId);
 
-        // then: 남은 first에게 UPDATE_CHAT_ROOM 전송
-        boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertThat(received).isTrue();
-        assertThat(firstMessages).isNotEmpty();
+        // then: 남은 first는 어떤 이벤트도 수신하지 않는다
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(firstMessages).isEmpty();
+    }
 
-        JsonNode node = objectMapper.readTree(firstMessages.get(0));
-        assertThat(node.get("messageType").asText()).isEqualTo("UPDATE_CHAT_ROOM");
-        assertThat(node.get("chatRoomId").asLong()).isEqualTo(spaceId);
+    @Test
+    @DisplayName("Space 나가기 시 나가는 사용자 본인도 아무 이벤트를 수신하지 않는다.")
+    void Space_나가기_시_나가는_사용자_본인도_아무_이벤트를_수신하지_않는다() throws ExecutionException, InterruptedException {
+        // given
+        String firstUsername = "first";
+        Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
+        Long firstId = first.getId();
+
+        String secondUsername = "second";
+        Member second = memberFixture.saveEncryptPasswordBy(secondUsername);
+        Long secondId = second.getId();
+
+        Space space = fixture.savedChatRoomBy("title", List.of(first, second));
+        Long spaceId = space.getId();
+
+        // second(나가는 사용자) WS 연결
+        String secondJSessionId = memberFixture.loginRequestBy(secondUsername, port);
+        List<String> secondMessages = new ArrayList<>();
+        socketFixture.connectSocket(secondJSessionId, secondId, port, secondMessages, new CountDownLatch(1));
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+
+        // when: second 본인이 채팅방 퇴장
+        spaceService.leaveSpace(secondId, spaceId);
+
+        // then: 나가는 사용자 본인도 아무 이벤트를 수신하지 않는다
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(secondMessages).isEmpty();
     }
 
     @Test
