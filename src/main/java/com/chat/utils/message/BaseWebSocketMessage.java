@@ -1,6 +1,7 @@
 package com.chat.utils.message;
 
 import com.chat.service.dtos.chat.EnterRoomRequest;
+import com.chat.service.dtos.chat.ReadUpToRequest;
 import com.chat.service.dtos.chat.RoomActiveRequest;
 import com.chat.service.dtos.chat.RoomInactiveRequest;
 import com.chat.service.dtos.chat.SendChat;
@@ -26,6 +27,7 @@ import lombok.experimental.SuperBuilder;
         @JsonSubTypes.Type(value = RoomActiveRequest.class, name = "ROOM_ACTIVE"),
         @JsonSubTypes.Type(value = RoomInactiveRequest.class, name = "ROOM_INACTIVE"),
         @JsonSubTypes.Type(value = SendDiscussionMessage.class, name = "DISCUSSION_MESSAGE"),
+        @JsonSubTypes.Type(value = ReadUpToRequest.class, name = "READ_UP_TO"),
         @JsonSubTypes.Type(value = BaseWebSocketMessage.class, name = "DEFAULT")
 })
 public class BaseWebSocketMessage {

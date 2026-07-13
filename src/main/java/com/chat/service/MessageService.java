@@ -8,10 +8,11 @@ import com.chat.repository.dtos.DiscussionSummary;
 import com.chat.repository.dtos.MessageUnreadMemberCount;
 import com.chat.service.dtos.MessageHistory;
 import com.chat.service.dtos.MessageHistoryResponse;
-import com.chat.service.dtos.SaveMessageData;
-import com.chat.service.dtos.chat.UpdateChatRoom;
 import com.chat.socket.event.PublishReadEvent;
-import com.chat.socket.manager.SpaceManager;
+import com.chat.utils.consts.MessageMetricNames;
+import com.chat.utils.valid.IdValidator;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,9 +33,7 @@ public class MessageService {
 
     private final ApplicationEventPublisher publisher;
 
-    private final BroadcastDataBuilder broadcastDataBuilder;
-
-    private final SpaceManager spaceManager;
+    private final MeterRegistry meterRegistry;
 
     private final MessageRepository messageRepository;
     private final SpaceRepository spaceRepository;
@@ -42,18 +41,8 @@ public class MessageService {
     private final MemberRepository memberRepository;
     private final DiscussionRepository discussionRepository;
 
-    public SaveMessageData findMessageData(Long chatId) {
-        Message findChat = messageRepository.findById(chatId).orElseThrow(
-                () -> new CustomException(ErrorCode.MESSAGE_NOT_FOUND)
-        );
-        Long unreadMemberCount = spaceMemberRepository.countMessageUnreadMembers(chatId);
-
-        return SaveMessageData
-                .builder()
-                .chatId(findChat.getId())
-                .createdDate(findChat.getCreatedDate())
-                .unreadMemberCount(unreadMemberCount)
-                .build();
+    public Long countMessageUnreadMembers(Long messageId) {
+        return spaceMemberRepository.countMessageUnreadMembers(messageId);
     }
 
     @Transactional
@@ -63,11 +52,22 @@ public class MessageService {
 
     @Transactional
     public Long saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
+        return saveMessageEntity(senderId, chatRoomId, message, clientMessageId).getId();
+    }
+
+    @Transactional
+    public Message saveMessageEntity(Long senderId, Long chatRoomId, String message, String clientMessageId) {
 
         if (clientMessageId != null) {
-            Optional<Message> existing = messageRepository.findByClientMessageId(clientMessageId);
+            Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
+            Optional<Message> existing;
+            try {
+                existing = messageRepository.findByClientMessageId(clientMessageId);
+            } finally {
+                idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
+            }
             if (existing.isPresent()) {
-                return existing.get().getId();
+                return existing.get();
             }
         }
 
@@ -79,29 +79,17 @@ public class MessageService {
         );
 
         Message savedChat = messageRepository.save(Message.of(message, findSender, findChatRoom, clientMessageId));
-        updateCursorsOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
+        updateSenderCursorOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
 
-        return savedChat.getId();
+        return savedChat;
     }
 
-    private void updateCursorsOnSend(Long senderId, Long chatRoomId, Message chat) {
-
-        List<SpaceMember> findSpaceMembers
-                = spaceMemberRepository.findAllFetchMemberBy(chatRoomId);
-
-        List<Long> readMemberIds = new ArrayList<>();
-
-        for (SpaceMember crp : findSpaceMembers) {
-            Long memberId = crp.getMember().getId();
-            boolean isRead = memberId.equals(senderId)
-                    || spaceManager.isSpaceActive(memberId, chatRoomId);
-            if (isRead) {
-                readMemberIds.add(memberId);
-            }
-        }
-
-        for (Long memberId : readMemberIds) {
-            spaceMemberRepository.updateLastReadMessageId(memberId, chatRoomId, chat.getId());
+    private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
+        Timer.Sample cursorUpdateSample = Timer.start(meterRegistry);
+        try {
+            spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
+        } finally {
+            cursorUpdateSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_CURSOR_UPDATE_DURATION));
         }
     }
 
@@ -154,13 +142,11 @@ public class MessageService {
             );
 
             if (updatedCount > 0) {
-                Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
                 publisher.publishEvent(new PublishReadEvent(
                         memberId,
                         chatRoomId,
                         lastReadMessageId,
-                        currentLastReadChatId,
-                        updatesByMemberId
+                        currentLastReadChatId
                 ));
             }
         }
@@ -218,13 +204,44 @@ public class MessageService {
             return;
         }
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId, Set.of(memberId));
         publisher.publishEvent(new PublishReadEvent(
                 memberId,
                 chatRoomId,
                 previousLastReadChatId,
-                latestChatId,
-                updatesByMemberId
+                latestChatId
+        ));
+    }
+
+    @Transactional
+    public void onReadUpTo(Long memberId, Long chatRoomId, Long lastReadMessageId) {
+        IdValidator.requireMessageId(lastReadMessageId);
+
+        Timer.Sample readUpToSample = Timer.start(meterRegistry);
+        Long previousLastReadChatId;
+        try {
+            if (!messageRepository.existsByIdAndSpaceId(lastReadMessageId, chatRoomId)) {
+                throw new CustomException(ErrorCode.MESSAGE_NOT_FOUND);
+            }
+
+            previousLastReadChatId =
+                    spaceMemberRepository.findLastReadMessageIdBy(memberId, chatRoomId);
+
+            int updateCount =
+                    spaceMemberRepository.updateLastReadMessageId(memberId, chatRoomId, lastReadMessageId);
+
+            if (updateCount == 0) {
+                return;
+            }
+        } finally {
+            readUpToSample.stop(meterRegistry.timer(MessageMetricNames.READ_UP_TO_DURATION));
+        }
+
+        // READ_UP_TO는 cursor update + READ_EVENT 발행까지만 수행한다.
+        publisher.publishEvent(new PublishReadEvent(
+                memberId,
+                chatRoomId,
+                previousLastReadChatId,
+                lastReadMessageId
         ));
     }
 }

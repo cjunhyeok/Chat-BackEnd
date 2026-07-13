@@ -2,6 +2,7 @@ package com.chat.api;
 
 import com.chat.api.request.chatroom.InviteMembersRequest;
 import com.chat.api.request.chatroom.RenameSpaceRequest;
+import com.chat.api.response.chatroom.RenameSpaceResponse;
 import com.chat.api.response.chatroom.SpaceInviteCodeResponse;
 import com.chat.api.response.chatroom.SpaceInviteInfoResponse;
 import com.chat.api.response.chatroom.SpaceJoinResponse;
@@ -71,13 +72,14 @@ public class SpaceApiController {
     }
 
     @PatchMapping("/api/chat/room/{chatRoomId}")
-    public Result<Void> renameChatRoom(@PathVariable Long chatRoomId,
+    public Result<RenameSpaceResponse> renameChatRoom(@PathVariable Long chatRoomId,
                                        @RequestBody RenameSpaceRequest request,
                                        @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) {
 
-        spaceService.renameSpace(loginMemberId, chatRoomId, request.getTitle());
+        RenameSpaceResponse response = spaceService.renameSpace(loginMemberId, chatRoomId, request.getTitle());
 
-        return Result.<Void>builder()
+        return Result.<RenameSpaceResponse>builder()
+                .data(response)
                 .status(HttpStatus.OK)
                 .message("채팅방 이름이 변경됐습니다.")
                 .build();

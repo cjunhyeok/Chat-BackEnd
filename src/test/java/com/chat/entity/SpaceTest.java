@@ -29,16 +29,31 @@ class SpaceTest {
     }
 
     @Test
-    @DisplayName("유효한 제목으로 변경하면 Space 이름이 갱신된다.")
+    @DisplayName("유효한 제목으로 변경하면 Space 이름이 갱신되고 true를 반환한다.")
     void 유효한_제목으로_변경하면_Space_이름이_갱신된다() {
         // given
         Space space = Space.of("구 이름");
 
         // when
-        space.rename("신 이름");
+        boolean changed = space.rename("신 이름");
 
         // then
+        assertThat(changed).isTrue();
         assertThat(space.getTitle()).isEqualTo("신 이름");
+    }
+
+    @Test
+    @DisplayName("기존과 같은 제목으로 변경을 시도하면 false를 반환하고 상태가 바뀌지 않는다.")
+    void 같은_제목으로_변경하면_false를_반환하고_상태가_바뀌지_않는다() {
+        // given
+        Space space = Space.of("동일 이름");
+
+        // when
+        boolean changed = space.rename("동일 이름");
+
+        // then
+        assertThat(changed).isFalse();
+        assertThat(space.getTitle()).isEqualTo("동일 이름");
     }
 
     @Test

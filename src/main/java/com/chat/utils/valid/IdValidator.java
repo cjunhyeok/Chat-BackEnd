@@ -18,4 +18,10 @@ public class IdValidator {
             throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
         }
     }
+
+    public static void requireMessageId(Long messageId) {
+        if (messageId == null || messageId <= 0) {
+            throw new CustomException(ErrorCode.MESSAGE_NOT_FOUND);
+        }
+    }
 }

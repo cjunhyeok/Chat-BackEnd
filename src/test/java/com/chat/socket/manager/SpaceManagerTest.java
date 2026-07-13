@@ -20,7 +20,7 @@ class SpaceManagerTest {
 
     @BeforeEach
     void init() {
-        spaceManager = new SpaceManager();
+        spaceManager = new SpaceManager(null);
     }
 
     @Test

@@ -2,7 +2,12 @@ package com.chat.socket.manager;
 
 import com.chat.utils.annotation.VisibleForTesting;
 import com.chat.utils.consts.SessionConst;
+import com.chat.utils.consts.WsMetricNames;
 import com.chat.utils.valid.IdValidator;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketSession;
@@ -14,11 +19,20 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class SpaceManager {
 
+    private final MeterRegistry meterRegistry;
     private final Map<Long, Set<WebSocketSession>> chatRooms = new ConcurrentHashMap<>();
     private final Map<String, Long> sessionToRoomMap = new ConcurrentHashMap<>();
     private final Map<String, SessionState> sessionStates = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void registerMetrics() {
+        Gauge.builder(WsMetricNames.WS_ROOM_SESSIONS, chatRooms,
+                        map -> (double) map.values().stream().mapToInt(Set::size).sum())
+                .register(meterRegistry);
+    }
 
     public void addSessionToSpace(WebSocketSession session, Long chatRoomId) {
 
@@ -33,7 +47,8 @@ public class SpaceManager {
                 if (state != null) {
                     state.deactivatedIfRoom(roomId);
                 } else {
-                    log.warn("addSessionToSpace: no SessionState for sessionId={}", session.getId());
+                    Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+                    log.warn("addSessionToSpace: no SessionState, session={}, memberId={}", session.getId(), memberId);
                 }
 
                 removeSpaceSession(roomId, session);
@@ -46,7 +61,8 @@ public class SpaceManager {
         if (state != null) {
             state.activate(chatRoomId);
         } else {
-            log.warn("addSessionToSpace: no SessionState for sessionId={}", session.getId());
+            Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+            log.warn("addSessionToSpace: no SessionState, session={}, memberId={}", session.getId(), memberId);
         }
     }
 

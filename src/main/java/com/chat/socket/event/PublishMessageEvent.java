@@ -1,17 +1,29 @@
 package com.chat.socket.event;
 
 import com.chat.service.dtos.chat.BroadcastChat;
-import com.chat.service.dtos.chat.UpdateChatRoom;
-import lombok.AllArgsConstructor;
+import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import lombok.Getter;
 
-import java.util.Map;
+import java.util.Set;
 
 @Getter
-@AllArgsConstructor
 public class PublishMessageEvent {
 
     private final BroadcastChat broadcastChat;
     private final Long chatRoomId;
-    private final Map<Long, UpdateChatRoom> updatesByMemberId;
+    private final RoomMessageSummaryUpdated roomMessageSummaryUpdated;
+    private final Set<Long> recipientMemberIds;
+    private final long publishedAtNanos;
+
+    public PublishMessageEvent(BroadcastChat broadcastChat,
+                                Long chatRoomId,
+                                RoomMessageSummaryUpdated roomMessageSummaryUpdated,
+                                Set<Long> recipientMemberIds,
+                                long publishedAtNanos) {
+        this.broadcastChat = broadcastChat;
+        this.chatRoomId = chatRoomId;
+        this.roomMessageSummaryUpdated = roomMessageSummaryUpdated;
+        this.recipientMemberIds = Set.copyOf(recipientMemberIds);
+        this.publishedAtNanos = publishedAtNanos;
+    }
 }

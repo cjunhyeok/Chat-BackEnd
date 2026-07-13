@@ -8,6 +8,7 @@ import com.chat.fixture.MemberFixture;
 import com.chat.fixture.TestDataFixture;
 import com.chat.repository.DiscussionRepository;
 import com.chat.service.dtos.chat.EnterRoomRequest;
+import com.chat.service.dtos.chat.ReadUpToRequest;
 import com.chat.service.dtos.chat.SendChat;
 import com.chat.service.dtos.chat.SendDiscussionMessage;
 import com.chat.socket.manager.SpaceManager;
@@ -123,7 +124,7 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(chat));
 
-        // then: CHAT_ENTER 제거 → CHAT_MESSAGE + UPDATE_CHAT_ROOM = 2개
+        // then: CHAT_ENTER 제거 → CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED = 2개
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
         assertThat(receivedMessages).hasSize(2);
@@ -417,5 +418,169 @@ class IntegrationTextSocketHandlerTest {
 
         JsonNode node = objectMapper.readTree(receivedMessages.get(0));
         assertThat(node.get("messageType").asText()).isEqualTo("DISCUSSION_MESSAGE_EVENT");
+    }
+
+    @Test
+    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT만 수신하고 다른 이벤트는 수신하지 않는다.")
+    void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT만_수신한다() throws ExecutionException, InterruptedException, IOException {
+        // given
+        String username = "username";
+        Member member = memberFixture.saveEncryptPasswordBy(username);
+        Long memberId = member.getId();
+
+        List<Member> participants = new ArrayList<>();
+        participants.add(member);
+        Space chatRoom = fixture.savedChatRoomBy("title", participants);
+        Long chatRoomId = chatRoom.getId();
+
+        Message chat = fixture.savedSimpleChat("hello", member, chatRoom);
+
+        String JSessionId = memberFixture.loginRequestBy(username, port);
+
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.add("Cookie", "JSESSIONID=" + JSessionId);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        List<String> receivedMessages = new ArrayList<>();
+        TestWebSocketHandler handler = new TestWebSocketHandler(memberId, receivedMessages, latch);
+
+        WebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(handler,
+                        headers,
+                        URI.create("ws://localhost:" + port + "/ws/chat"))
+                .get();
+
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        WebSocketSession serverSession = websocketSessionManager.getSessionBy(memberId).iterator().next();
+        spaceManager.addSessionToSpace(serverSession, chatRoomId);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        ReadUpToRequest readUpTo = ReadUpToRequest.builder()
+                .messageType(MessageType.READ_UP_TO)
+                .chatRoomId(chatRoomId)
+                .lastReadMessageId(chat.getId())
+                .build();
+
+        // when
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
+
+        // then: READ_EVENT(room 세션 broadcast)만 발생
+        boolean received = latch.await(2, TimeUnit.SECONDS);
+        assertThat(received).isTrue();
+
+        // 다른 이벤트가 뒤늦게라도 오지 않는지 짧게 추가 대기 후 재확인
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        assertThat(receivedMessages).hasSize(1);
+        assertThat(objectMapper.readTree(receivedMessages.get(0)).get("messageType").asText())
+                .isEqualTo("READ_EVENT");
+    }
+
+    @Test
+    @DisplayName("Space에 등록되지 않은 세션이 READ_UP_TO를 전송하면 ROOM_NOT_JOINED 에러 응답을 받는다.")
+    void Space에_등록되지_않은_세션이_READ_UP_TO를_전송하면_ROOM_NOT_JOINED_에러_응답을_받는다() throws ExecutionException, InterruptedException, IOException {
+        // given
+        String username = "username";
+        Member member = memberFixture.saveEncryptPasswordBy(username);
+        Long memberId = member.getId();
+
+        List<Member> participants = new ArrayList<>();
+        participants.add(member);
+        Space chatRoom = fixture.savedChatRoomBy("title", participants);
+        Long chatRoomId = chatRoom.getId();
+
+        Message chat = fixture.savedSimpleChat("hello", member, chatRoom);
+
+        String JSessionId = memberFixture.loginRequestBy(username, port);
+
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.add("Cookie", "JSESSIONID=" + JSessionId);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        List<String> receivedMessages = new ArrayList<>();
+        TestWebSocketHandler handler = new TestWebSocketHandler(memberId, receivedMessages, latch);
+
+        WebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(handler,
+                        headers,
+                        URI.create("ws://localhost:" + port + "/ws/chat"))
+                .get();
+
+        // ENTER_ROOM을 보내지 않아 세션이 room에 등록되지 않은 상태
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        ReadUpToRequest readUpTo = ReadUpToRequest.builder()
+                .messageType(MessageType.READ_UP_TO)
+                .chatRoomId(chatRoomId)
+                .lastReadMessageId(chat.getId())
+                .build();
+
+        // when
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
+
+        // then
+        boolean received = latch.await(2, TimeUnit.SECONDS);
+        assertThat(received).isTrue();
+
+        JsonNode node = objectMapper.readTree(receivedMessages.get(0));
+        assertThat(node.get("messageType").asText()).isEqualTo("ERROR");
+        assertThat(node.get("errorCode").asText()).isEqualTo("ROOM_NOT_JOINED");
+        assertThat(node.get("requestType").asText()).isEqualTo("READ_UP_TO");
+        assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
+    }
+
+    @Test
+    @DisplayName("다른 room의 messageId로 READ_UP_TO를 전송하면 MESSAGE_NOT_FOUND 에러 응답을 받는다.")
+    void 다른_room의_messageId로_READ_UP_TO를_전송하면_MESSAGE_NOT_FOUND_에러_응답을_받는다() throws ExecutionException, InterruptedException, IOException {
+        // given
+        String username = "username";
+        Member member = memberFixture.saveEncryptPasswordBy(username);
+        Long memberId = member.getId();
+
+        List<Member> participants = new ArrayList<>();
+        participants.add(member);
+        Space chatRoom = fixture.savedChatRoomBy("title", participants);
+        Long chatRoomId = chatRoom.getId();
+
+        Space otherRoom = fixture.savedChatRoomBy("otherRoom", participants);
+        Message otherRoomChat = fixture.savedSimpleChat("hello", member, otherRoom);
+
+        String JSessionId = memberFixture.loginRequestBy(username, port);
+
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.add("Cookie", "JSESSIONID=" + JSessionId);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        List<String> receivedMessages = new ArrayList<>();
+        TestWebSocketHandler handler = new TestWebSocketHandler(memberId, receivedMessages, latch);
+
+        WebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(handler,
+                        headers,
+                        URI.create("ws://localhost:" + port + "/ws/chat"))
+                .get();
+
+        Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
+        WebSocketSession serverSession = websocketSessionManager.getSessionBy(memberId).iterator().next();
+        spaceManager.addSessionToSpace(serverSession, chatRoomId);
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        ReadUpToRequest readUpTo = ReadUpToRequest.builder()
+                .messageType(MessageType.READ_UP_TO)
+                .chatRoomId(chatRoomId)
+                .lastReadMessageId(otherRoomChat.getId())
+                .build();
+
+        // when
+        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
+
+        // then
+        boolean received = latch.await(2, TimeUnit.SECONDS);
+        assertThat(received).isTrue();
+
+        JsonNode node = objectMapper.readTree(receivedMessages.get(0));
+        assertThat(node.get("messageType").asText()).isEqualTo("ERROR");
+        assertThat(node.get("errorCode").asText()).isEqualTo("MESSAGE_NOT_FOUND");
+        assertThat(node.get("requestType").asText()).isEqualTo("READ_UP_TO");
+        assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
     }
 }

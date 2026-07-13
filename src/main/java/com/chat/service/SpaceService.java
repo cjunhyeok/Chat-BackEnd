@@ -1,5 +1,6 @@
 package com.chat.service;
 
+import com.chat.api.response.chatroom.RenameSpaceResponse;
 import com.chat.api.response.chatroom.SpaceInviteCodeResponse;
 import com.chat.api.response.chatroom.SpaceInviteInfoResponse;
 import com.chat.api.response.chatroom.SpaceMemberResponse;
@@ -9,16 +10,21 @@ import com.chat.exception.CustomException;
 import com.chat.exception.ErrorCode;
 import com.chat.repository.*;
 import com.chat.repository.dtos.RoomUnreadMessageCount;
-import com.chat.service.dtos.SaveMessageData;
 import com.chat.service.dtos.SaveSpaceDTO;
 import com.chat.service.dtos.chat.BroadcastChat;
+import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SendChat;
-import com.chat.service.dtos.chat.UpdateChatRoom;
+import com.chat.service.dtos.chat.SpaceInvited;
+import com.chat.service.dtos.chat.SpaceTitleChanged;
 import com.chat.socket.event.PublishMessageEvent;
-import com.chat.socket.event.PublishUpdateEvent;
+import com.chat.socket.event.PublishSpaceInvitedEvent;
+import com.chat.socket.event.PublishSpaceTitleChangedEvent;
 import com.chat.socket.manager.SpaceManager;
+import com.chat.utils.consts.MessageMetricNames;
 import com.chat.utils.consts.SessionConst;
 import com.chat.utils.message.MessageType;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -36,8 +42,8 @@ import java.util.stream.Collectors;
 public class SpaceService {
 
     private final ApplicationEventPublisher publisher;
-    private final BroadcastDataBuilder broadcastDataBuilder;
     private final SpaceManager spaceManager;
+    private final MeterRegistry meterRegistry;
 
     private final MessageService messageService;
 
@@ -48,29 +54,33 @@ public class SpaceService {
 
     @Transactional
     public void broadCastMessage(Long memberId, SendChat sendChat) {
-        Long chatRoomId = sendChat.getChatRoomId();
-        Long savedMessageId = messageService.saveMessage(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
+        Timer.Sample flowSample = Timer.start(meterRegistry);
+        try {
+            Long chatRoomId = sendChat.getChatRoomId();
+            Message savedMessage = messageService.saveMessageEntity(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
 
-        Member sender = memberRepository.findById(memberId).orElseThrow(
-                () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
-        );
+            Long unreadMemberCount = messageService.countMessageUnreadMembers(savedMessage.getId());
 
-        SaveMessageData messageData = messageService.findMessageData(savedMessageId);
+            BroadcastChat broadcastChat = BroadcastChat.builder()
+                    .messageType(MessageType.CHAT_MESSAGE)
+                    .senderId(memberId)
+                    .senderNickname(savedMessage.getMember().getNickname())
+                    .chatRoomId(chatRoomId)
+                    .message(savedMessage.getContent())
+                    .chatId(savedMessage.getId())
+                    .unreadMemberCount(unreadMemberCount)
+                    .createdDate(savedMessage.getCreatedDate())
+                    .clientMessageId(savedMessage.getClientMessageId())
+                    .build();
 
-        BroadcastChat broadcastChat = BroadcastChat.builder()
-                .messageType(MessageType.CHAT_MESSAGE)
-                .senderId(memberId)
-                .senderNickname(sender.getNickname())
-                .chatRoomId(chatRoomId)
-                .message(sendChat.getMessage())
-                .chatId(messageData.getChatId())
-                .unreadMemberCount(messageData.getUnreadMemberCount())
-                .createdDate(messageData.getCreatedDate())
-                .clientMessageId(sendChat.getClientMessageId())
-                .build();
+            RoomMessageSummaryUpdated roomMessageSummaryUpdated = RoomMessageSummaryUpdated.from(savedMessage);
+            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishMessageEvent(broadcastChat, chatRoomId, updatesByMemberId));
+            publisher.publishEvent(new PublishMessageEvent(
+                    broadcastChat, chatRoomId, roomMessageSummaryUpdated, recipientMemberIds, System.nanoTime()));
+        } finally {
+            flowSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_FLOW_DURATION));
+        }
     }
 
     @Transactional
@@ -170,13 +180,10 @@ public class SpaceService {
                 spaceManager.removeSpaceSession(chatRoomId, session);
             }
         }
-
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
     }
 
     @Transactional
-    public void renameSpace(Long memberId, Long chatRoomId, String title) {
+    public RenameSpaceResponse renameSpace(Long memberId, Long chatRoomId, String title) {
 
         SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
         if (participant == null) {
@@ -185,10 +192,14 @@ public class SpaceService {
 
         Space space = spaceRepository.findById(chatRoomId)
                 .orElseThrow(() -> new CustomException(ErrorCode.SPACE_NOT_FOUND));
-        space.rename(title);
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
+        boolean changed = space.rename(title);
+        if (changed) {
+            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
+            publisher.publishEvent(new PublishSpaceTitleChangedEvent(SpaceTitleChanged.from(space), recipientMemberIds));
+        }
+
+        return RenameSpaceResponse.from(space);
     }
 
     public List<SpaceMemberResponse> findSpaceMembers(Long memberId, Long chatRoomId) {
@@ -264,13 +275,19 @@ public class SpaceService {
         );
 
         List<Member> invitees = memberRepository.findAllById(inviteeIds);
+        Set<Long> newlyInvitedMemberIds = new HashSet<>();
         for (Member invitee : invitees) {
             if (!existingMemberIds.contains(invitee.getId())) {
                 spaceMemberRepository.save(SpaceMember.of(invitee, space));
+                newlyInvitedMemberIds.add(invitee.getId());
             }
         }
 
-        Map<Long, UpdateChatRoom> updatesByMemberId = broadcastDataBuilder.build(chatRoomId);
-        publisher.publishEvent(new PublishUpdateEvent(chatRoomId, updatesByMemberId));
+        if (!newlyInvitedMemberIds.isEmpty()) {
+            SpaceInvited payload = SpaceInvited.builder()
+                    .messageType(MessageType.SPACE_INVITED)
+                    .build();
+            publisher.publishEvent(new PublishSpaceInvitedEvent(payload, chatRoomId, newlyInvitedMemberIds));
+        }
     }
 }

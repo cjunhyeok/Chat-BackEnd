@@ -39,9 +39,13 @@ public class Space extends BaseEntity {
         return new Space(title);
     }
 
-    public void rename(String title) {
+    public boolean rename(String title) {
         validateTitle(title);
+        if (this.title.equals(title)) {
+            return false;
+        }
         this.title = title;
+        return true;
     }
 
     private static void validateTitle(String title) {

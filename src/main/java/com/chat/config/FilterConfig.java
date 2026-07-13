@@ -2,6 +2,7 @@ package com.chat.config;
 
 import com.chat.filter.LoginConcurrencyFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -14,8 +15,9 @@ public class FilterConfig {
     private int limit;
 
     @Bean
-    public FilterRegistrationBean<LoginConcurrencyFilter> loginConcurrencyFilterRegistrationBean(ObjectMapper objectMapper) {
-        LoginConcurrencyFilter filter = new LoginConcurrencyFilter(limit, objectMapper);
+    public FilterRegistrationBean<LoginConcurrencyFilter> loginConcurrencyFilterRegistrationBean(
+            ObjectMapper objectMapper, MeterRegistry meterRegistry) {
+        LoginConcurrencyFilter filter = new LoginConcurrencyFilter(limit, objectMapper, meterRegistry);
 
         FilterRegistrationBean<LoginConcurrencyFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(filter);
