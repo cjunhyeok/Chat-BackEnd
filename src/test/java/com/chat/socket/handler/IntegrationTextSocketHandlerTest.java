@@ -421,8 +421,8 @@ class IntegrationTextSocketHandlerTest {
     }
 
     @Test
-    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT만 수신하고 다른 이벤트는 수신하지 않는다.")
-    void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT만_수신한다() throws ExecutionException, InterruptedException, IOException {
+    @DisplayName("참여 세션이 READ_UP_TO를 전송하면 READ_EVENT_BATCH만 수신하고 다른 이벤트는 수신하지 않는다.")
+    void 참여_세션이_READ_UP_TO를_전송하면_READ_EVENT_BATCH만_수신한다() throws ExecutionException, InterruptedException, IOException {
         // given
         String username = "username";
         Member member = memberFixture.saveEncryptPasswordBy(username);
@@ -464,15 +464,19 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(readUpTo)));
 
-        // then: READ_EVENT(room 세션 broadcast)만 발생
+        // then: READ_EVENT_BATCH(room 세션 broadcast)만 발생
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
 
         // 다른 이벤트가 뒤늦게라도 오지 않는지 짧게 추가 대기 후 재확인
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
         assertThat(receivedMessages).hasSize(1);
-        assertThat(objectMapper.readTree(receivedMessages.get(0)).get("messageType").asText())
-                .isEqualTo("READ_EVENT");
+
+        JsonNode readEventBatchNode = objectMapper.readTree(receivedMessages.get(0));
+        assertThat(readEventBatchNode.get("messageType").asText()).isEqualTo("READ_EVENT_BATCH");
+
+        JsonNode readItemNode = readEventBatchNode.get("reads").get(0);
+        assertThat(readItemNode.get("memberId").asLong()).isEqualTo(memberId);
     }
 
     @Test

@@ -418,8 +418,8 @@ public class SpaceServiceSocketTest {
     }
 
     @Test
-    @DisplayName("채팅 내역 조회 시 방에 접속 중인 세션에 READ_EVENT만 전송되고 UPDATE_CHAT_ROOM은 전송되지 않는다.")
-    void 채팅_내역_조회_시_방에_접속_중인_세션에_READ_EVENT만_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
+    @DisplayName("채팅 내역 조회 시 방에 접속 중인 세션에 READ_EVENT_BATCH만 전송되고 UPDATE_CHAT_ROOM은 전송되지 않는다.")
+    void 채팅_내역_조회_시_방에_접속_중인_세션에_READ_EVENT_BATCH만_전송된다() throws ExecutionException, InterruptedException, JsonProcessingException {
         // given
         String firstUsername = "first";
         Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -468,24 +468,26 @@ public class SpaceServiceSocketTest {
                     }
                 })
                 .collect(Collectors.toList());
-        assertThat(messageTypes).containsExactly("READ_EVENT");
+        assertThat(messageTypes).containsExactly("READ_EVENT_BATCH");
         assertThat(messageTypes).doesNotContain("UPDATE_CHAT_ROOM");
 
-        // READ_EVENT의 memberId, chatRoomId, previousLastReadChatId, currentLastReadChatId 검증
-        String readEventPayload = secondMessages.stream()
-                .filter(msg -> msg.contains("READ_EVENT"))
+        // READ_EVENT_BATCH의 chatRoomId, reads[0].memberId/previousLastReadChatId/currentLastReadChatId 검증
+        String readEventBatchPayload = secondMessages.stream()
+                .filter(msg -> msg.contains("READ_EVENT_BATCH"))
                 .findFirst()
                 .orElseThrow();
-        JsonNode readEventNode = objectMapper.readTree(readEventPayload);
-        assertThat(readEventNode.get("memberId").asLong()).isEqualTo(secondId);
-        assertThat(readEventNode.get("chatRoomId").asLong()).isEqualTo(spaceId);
-        assertThat(readEventNode.get("previousLastReadChatId").isNull()).isTrue();
-        assertThat(readEventNode.get("currentLastReadChatId").isNull()).isFalse();
+        JsonNode readEventBatchNode = objectMapper.readTree(readEventBatchPayload);
+        assertThat(readEventBatchNode.get("chatRoomId").asLong()).isEqualTo(spaceId);
+
+        JsonNode readItemNode = readEventBatchNode.get("reads").get(0);
+        assertThat(readItemNode.get("memberId").asLong()).isEqualTo(secondId);
+        assertThat(readItemNode.get("previousLastReadChatId").isNull()).isTrue();
+        assertThat(readItemNode.get("currentLastReadChatId").isNull()).isFalse();
     }
 
     @Test
-    @DisplayName("채팅 내역 조회 시 READ_EVENT에 이전 방문의 lastReadMessageId가 포함된다.")
-    void 채팅_내역_조회_시_READ_EVENT에_이전_방문의_lastReadMessageId가_포함된다() throws ExecutionException, InterruptedException, JsonProcessingException {
+    @DisplayName("채팅 내역 조회 시 READ_EVENT_BATCH에 이전 방문의 lastReadMessageId가 포함된다.")
+    void 채팅_내역_조회_시_READ_EVENT_BATCH에_이전_방문의_lastReadMessageId가_포함된다() throws ExecutionException, InterruptedException, JsonProcessingException {
         // given
         String firstUsername = "first";
         Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -520,17 +522,18 @@ public class SpaceServiceSocketTest {
         // when: second 두 번째 채팅 내역 조회 → lastReadChatId = firstMessageId (이전 방문 시 firstChat까지 읽었음)
         messageService.findMessageHistory(spaceId, secondId, null);
 
-        // then: READ_EVENT에 lastReadChatId 포함 검증
+        // then: READ_EVENT_BATCH에 lastReadChatId 포함 검증
         boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isTrue();
 
-        String readEventPayload = secondMessages.stream()
-                .filter(msg -> msg.contains("READ_EVENT"))
+        String readEventBatchPayload = secondMessages.stream()
+                .filter(msg -> msg.contains("READ_EVENT_BATCH"))
                 .findFirst()
                 .orElseThrow();
-        JsonNode readEventNode = objectMapper.readTree(readEventPayload);
-        assertThat(readEventNode.get("memberId").asLong()).isEqualTo(secondId);
-        assertThat(readEventNode.get("previousLastReadChatId").asLong()).isEqualTo(firstMessageId);
+        JsonNode readEventBatchNode = objectMapper.readTree(readEventBatchPayload);
+        JsonNode readItemNode = readEventBatchNode.get("reads").get(0);
+        assertThat(readItemNode.get("memberId").asLong()).isEqualTo(secondId);
+        assertThat(readItemNode.get("previousLastReadChatId").asLong()).isEqualTo(firstMessageId);
     }
 
     @Test
@@ -945,8 +948,8 @@ public class SpaceServiceSocketTest {
     }
 
     @Test
-    @DisplayName("ROOM_ACTIVE 전송 시 unread가 있으면 READ_EVENT만 소켓으로 전달되고 UPDATE_CHAT_ROOM은 전달되지 않는다.")
-    void ROOM_ACTIVE_전송_시_unread가_있으면_READ_EVENT만_전달된다()
+    @DisplayName("ROOM_ACTIVE 전송 시 unread가 있으면 READ_EVENT_BATCH만 소켓으로 전달되고 UPDATE_CHAT_ROOM은 전달되지 않는다.")
+    void ROOM_ACTIVE_전송_시_unread가_있으면_READ_EVENT_BATCH만_전달된다()
             throws Exception {
         // given
         String firstUsername = "first";
@@ -983,7 +986,7 @@ public class SpaceServiceSocketTest {
                 .build();
         secondClientSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(roomActive)));
 
-        // then: 3초 안에 READ_EVENT 수신
+        // then: 3초 안에 READ_EVENT_BATCH 수신
         boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isTrue();
 
@@ -999,7 +1002,7 @@ public class SpaceServiceSocketTest {
                     }
                 })
                 .collect(Collectors.toList());
-        assertThat(messageTypes).containsExactly("READ_EVENT");
+        assertThat(messageTypes).containsExactly("READ_EVENT_BATCH");
         assertThat(messageTypes).doesNotContain("UPDATE_CHAT_ROOM");
     }
 

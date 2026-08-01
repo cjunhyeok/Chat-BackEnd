@@ -1,6 +1,6 @@
 package com.chat.socket.listener;
 
-import com.chat.service.dtos.chat.ReadEvent;
+import com.chat.service.dtos.chat.ReadEventBatch;
 import com.chat.service.dtos.chat.RoomMessageSummaryUpdated;
 import com.chat.service.dtos.chat.SpaceInvited;
 import com.chat.service.dtos.chat.SpaceTitleChanged;
@@ -9,6 +9,7 @@ import com.chat.socket.event.PublishMessageEvent;
 import com.chat.socket.event.PublishReadEvent;
 import com.chat.socket.event.PublishSpaceInvitedEvent;
 import com.chat.socket.event.PublishSpaceTitleChangedEvent;
+import com.chat.socket.manager.ReadEventBatchAccumulator;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.MessageMetricNames;
@@ -39,6 +40,7 @@ public class MessageBroadcastListener {
     private final WebsocketSessionManager websocketSessionManager;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final ReadEventBatchAccumulator readEventBatchAccumulator;
 
     @Async("broadcastExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -57,22 +59,14 @@ public class MessageBroadcastListener {
         sendRoomMessageSummaryUpdated(event.getRoomMessageSummaryUpdated(), event.getRecipientMemberIds());
     }
 
-    @Async("broadcastExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publishReadEventToSessions(PublishReadEvent event) {
-        ReadEvent readEvent = new ReadEvent(
-                event.getMemberId(),
-                event.getChatRoomId(),
-                event.getPreviousLastReadChatId(),
-                event.getCurrentLastReadChatId()
-        );
+        readEventBatchAccumulator.enqueue(event);
+    }
 
-        Timer.Sample readEventBroadcastSample = Timer.start(meterRegistry);
-        try {
-            sendToSpaceSessions(event.getChatRoomId(), readEvent);
-        } finally {
-            readEventBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.READ_EVENT_BROADCAST_DURATION));
-        }
+    @Async("broadcastExecutor")
+    public void broadcastReadEventBatch(ReadEventBatch batch) {
+        sendToSpaceSessions(batch.getChatRoomId(), batch);
     }
 
     @Async("broadcastExecutor")
