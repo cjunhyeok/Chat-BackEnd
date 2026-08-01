@@ -15,6 +15,7 @@ public enum MessageType {
     SPACE_INVITED("Space 초대"),
     ROOM_MESSAGE_SUMMARY_UPDATED("채팅방 마지막 메시지 요약 갱신"),
     READ_EVENT("읽음 이벤트"),
+    READ_EVENT_BATCH("읽음 이벤트 배치"),
     READ_UP_TO("읽음 처리 요청"),
     ROOM_ACTIVE("방 활성화"),
     ROOM_INACTIVE("방 비활성화"),
