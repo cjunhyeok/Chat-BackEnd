@@ -295,8 +295,11 @@ class MessageServiceTest {
         // when: secondMember 입장 — 미읽음 1개 존재
         messageService.findMessageHistory(chatRoomId, secondMember.getId(), null);
 
-        // then: PublishReadEvent 1건 발행, 필드값 검증
-        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class).toList();
+        // then: secondMember의 PublishReadEvent 1건 발행, 필드값 검증
+        // (firstMember의 CHAT_MESSAGE 전송으로도 sender 본인 cursor 이벤트가 별도로 발행되므로 memberId로 필터링한다)
+        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(secondMember.getId()))
+                .toList();
         assertThat(publishedEvents).hasSize(1);
 
         PublishReadEvent event = publishedEvents.get(0);
@@ -489,8 +492,11 @@ class MessageServiceTest {
         // when: 재입장 — 미읽음 없음
         messageService.findMessageHistory(chatRoomId, secondMember.getId(), null);
 
-        // then: 두 번 호출했지만 이벤트는 첫 번째 호출에서만 1건 발행
-        long eventCount = events.stream(PublishReadEvent.class).count();
+        // then: secondMember 관점에서는 두 번 호출했지만 이벤트는 첫 번째 호출에서만 1건 발행
+        // (firstMember의 CHAT_MESSAGE sender 이벤트는 별개이므로 memberId로 필터링한다)
+        long eventCount = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(secondMember.getId()))
+                .count();
         assertThat(eventCount).isEqualTo(1);
     }
 
@@ -510,6 +516,113 @@ class MessageServiceTest {
         SpaceMember senderParticipant = spaceMemberRepository
                 .findChatRoomBy(chatRoom.getId(), sender.getId());
         assertThat(senderParticipant.getLastReadMessageId()).isEqualTo(savedChatId);
+    }
+
+    @Test
+    @DisplayName("CHAT_MESSAGE로 sender cursor가 증가하면 PublishReadEvent가 발행되고 previous/current 값이 정확하다.")
+    void saveChat_senderCursorAdvances_publishesReadEventWithCorrectCursorsTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first");
+
+        // when: sender가 두 번째 메시지를 보내 cursor가 firstChatId → secondChatId로 전진
+        Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second");
+
+        // then: 두 번째 전송에서 발행된 sender 본인 이벤트의 previous/current 값 검증
+        List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .toList();
+        assertThat(senderEvents).hasSize(2);
+
+        PublishReadEvent secondEvent = senderEvents.get(1);
+        assertThat(secondEvent.getMemberId()).isEqualTo(sender.getId());
+        assertThat(secondEvent.getChatRoomId()).isEqualTo(chatRoomId);
+        assertThat(secondEvent.getPreviousLastReadChatId()).isEqualTo(firstChatId);
+        assertThat(secondEvent.getCurrentLastReadChatId()).isEqualTo(secondChatId);
+    }
+
+    @Test
+    @DisplayName("sender의 기존 cursor가 null인 첫 메시지 전송 시 previousLastReadMessageId=null로 PublishReadEvent가 발행된다.")
+    void saveChat_senderFirstMessage_publishesReadEventWithNullPreviousCursorTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        // when: sender의 첫 메시지 전송 (cursor 이전 상태 = null)
+        Long savedChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello");
+
+        // then
+        List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .toList();
+        assertThat(senderEvents).hasSize(1);
+
+        PublishReadEvent event = senderEvents.get(0);
+        assertThat(event.getMemberId()).isEqualTo(sender.getId());
+        assertThat(event.getChatRoomId()).isEqualTo(chatRoomId);
+        assertThat(event.getPreviousLastReadChatId()).isNull();
+        assertThat(event.getCurrentLastReadChatId()).isEqualTo(savedChatId);
+    }
+
+    @Test
+    @DisplayName("clientMessageId 멱등성 재전송 시 sender cursor update와 PublishReadEvent가 다시 발생하지 않는다.")
+    void saveChat_idempotentRetryWithSameClientMessageId_doesNotPublishReadEventAgainTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+        String clientMessageId = "client-uuid-retry-read-event";
+
+        // when: 동일한 clientMessageId로 두 번 전송 (두 번째는 기존 메시지를 그대로 반환)
+        Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", clientMessageId);
+        Long retryChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", clientMessageId);
+        em.clear();
+
+        // then: 새 메시지가 저장되지 않았으므로 cursor는 firstChatId 그대로이고, 이벤트는 1건만 발행된다
+        assertThat(retryChatId).isEqualTo(firstChatId);
+
+        SpaceMember senderParticipant = spaceMemberRepository
+                .findChatRoomBy(chatRoomId, sender.getId());
+        assertThat(senderParticipant.getLastReadMessageId()).isEqualTo(firstChatId);
+
+        List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .toList();
+        assertThat(senderEvents).hasSize(1);
+        assertThat(senderEvents.get(0).getCurrentLastReadChatId()).isEqualTo(firstChatId);
+    }
+
+    @Test
+    @DisplayName("연속 메시지 전송 시 각 전송마다 실제 cursor 증가분에 대한 PublishReadEvent가 순서대로 발행된다.")
+    void saveChat_consecutiveMessages_publishesReadEventPerAdvanceTest(ApplicationEvents events) {
+        // given
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        // when: cursor 90 → message 100 → message 101에 해당하는 연속 전송
+        Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first");
+        Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second");
+
+        // then: (null,firstChatId), (firstChatId,secondChatId) 순서로 2건 발행
+        List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .toList();
+        assertThat(senderEvents).hasSize(2);
+
+        assertThat(senderEvents.get(0).getPreviousLastReadChatId()).isNull();
+        assertThat(senderEvents.get(0).getCurrentLastReadChatId()).isEqualTo(firstChatId);
+
+        assertThat(senderEvents.get(1).getPreviousLastReadChatId()).isEqualTo(firstChatId);
+        assertThat(senderEvents.get(1).getCurrentLastReadChatId()).isEqualTo(secondChatId);
     }
 
     @Test
@@ -795,8 +908,11 @@ class MessageServiceTest {
         // when: 이미 최신인 상태에서 ROOM_ACTIVE
         messageService.onRoomActive(receiver.getId(), chatRoomId);
 
-        // then: onReadUpTo에서 발행된 이벤트 1건만 존재, ROOM_ACTIVE로 인한 추가 발행 없음
-        long eventCount = events.stream(PublishReadEvent.class).count();
+        // then: receiver 관점에서는 onReadUpTo에서 발행된 이벤트 1건만 존재, ROOM_ACTIVE로 인한 추가 발행 없음
+        // (sender의 CHAT_MESSAGE 전송으로 발행된 sender 본인 cursor 이벤트는 별개이므로 memberId로 필터링한다)
+        long eventCount = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(receiver.getId()))
+                .count();
         assertThat(eventCount).isEqualTo(1);
     }
 
@@ -831,9 +947,11 @@ class MessageServiceTest {
         // when: ROOM_ACTIVE
         messageService.onRoomActive(receiver.getId(), chatRoomId);
 
-        // then: PublishReadEvent 1건 발행
-        List<PublishReadEvent> publishedEvents =
-                events.stream(PublishReadEvent.class).toList();
+        // then: receiver의 PublishReadEvent 1건 발행
+        // (inactive 동안 sender가 보낸 메시지 3건도 각각 sender 본인 cursor 이벤트를 발행하므로 memberId로 필터링한다)
+        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(receiver.getId()))
+                .toList();
         assertThat(publishedEvents).hasSize(1);
 
         PublishReadEvent event = publishedEvents.get(0);
@@ -858,8 +976,11 @@ class MessageServiceTest {
         messageService.onRoomActive(receiver.getId(), chatRoomId); // 1st → cursor advance, 이벤트발행
         messageService.onRoomActive(receiver.getId(), chatRoomId); // 2nd → cursor 이미 최신,이벤트 미발행
 
-        // then: 이벤트는 1건만 발행
-        long eventCount = events.stream(PublishReadEvent.class).count();
+        // then: receiver 이벤트는 1건만 발행
+        // (setup의 sender CHAT_MESSAGE 전송이 발행한 sender 본인 cursor 이벤트는 별개이므로 memberId로 필터링한다)
+        long eventCount = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(receiver.getId()))
+                .count();
         assertThat(eventCount).isEqualTo(1);
     }
 
@@ -898,8 +1019,11 @@ class MessageServiceTest {
         // when
         messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
 
-        // then
-        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class).toList();
+        // then: receiver의 PublishReadEvent 1건 발행
+        // (setup의 sender CHAT_MESSAGE 전송이 발행한 sender 본인 cursor 이벤트는 별개이므로 memberId로 필터링한다)
+        List<PublishReadEvent> publishedEvents = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(receiver.getId()))
+                .toList();
         assertThat(publishedEvents).hasSize(1);
 
         PublishReadEvent event = publishedEvents.get(0);
@@ -929,11 +1053,58 @@ class MessageServiceTest {
                 .doesNotThrowAnyException();
         em.flush(); em.clear();
 
-        // then: cursor는 secondChatId 그대로, 두 번째 호출로는 이벤트가 추가 발행되지 않음
+        // then: cursor는 secondChatId 그대로, 두 번째 호출로는 receiver 이벤트가 추가 발행되지 않음
+        // (setup의 sender CHAT_MESSAGE 전송 2건이 발행한 sender 본인 cursor 이벤트는 별개이므로 memberId로 필터링한다)
         SpaceMember participant = spaceMemberRepository
                 .findChatRoomBy(chatRoomId, receiver.getId());
         assertThat(participant.getLastReadMessageId()).isEqualTo(secondChatId);
-        assertThat(events.stream(PublishReadEvent.class).count()).isEqualTo(1);
+        assertThat(events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(receiver.getId()))
+                .count()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("CHAT_MESSAGE로 cursor가 앞질러 전진한 뒤 그 사이 messageId로 늦게 도착한 READ_UP_TO는 무시된다.")
+    void saveChat_cursorAlreadyPassed_lateReadUpToIsNoopTest(ApplicationEvents events) {
+        // given: sender cursor가 baseline(90 역할)까지 읽힌 상태
+        Member sender = fixture.savedMemberBy("sender");
+        Member receiver = fixture.savedMemberBy("receiver");
+        Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
+        Long chatRoomId = chatRoom.getId();
+
+        Long baselineChatId = messageService.saveMessage(sender.getId(), chatRoomId, "baseline"); // cursor: null -> 90
+
+        // 같은 방에서 receiver가 보낸 메시지 (91~99 구간에 해당하는, sender cursor보다 뒤처지는 messageId)
+        Long midChatId = messageService.saveMessage(receiver.getId(), chatRoomId, "mid");
+
+        // when: sender가 다음 메시지를 보내 cursor가 90 -> 100으로 한 번에 전진 (91~99 구간을 건너뜀)
+        Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "latest"); // cursor: 90 -> 100
+
+        // then: CHAT_MESSAGE 전송으로 (90,100) PublishReadEvent가 이미 발행됨
+        List<PublishReadEvent> senderEventsAfterSend = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .toList();
+        assertThat(senderEventsAfterSend).hasSize(2); // (null,baseline) + (baseline,latest)
+        PublishReadEvent advanceEvent = senderEventsAfterSend.get(1);
+        assertThat(advanceEvent.getPreviousLastReadChatId()).isEqualTo(baselineChatId);
+        assertThat(advanceEvent.getCurrentLastReadChatId()).isEqualTo(latestChatId);
+
+        // when: 91~99 구간(mid)을 가리키는 READ_UP_TO가 뒤늦게 도착 (cursor는 이미 100이므로 no-op)
+        assertThatCode(() -> messageService.onReadUpTo(sender.getId(), chatRoomId, midChatId))
+                .doesNotThrowAnyException();
+        em.flush(); em.clear();
+
+        // then: cursor는 latestChatId 그대로이고, 추가 PublishReadEvent는 발행되지 않는다
+        // (91~99에 해당하는 unreadMemberCount 감소는 이미 (baseline,latest) READ_EVENT_BATCH로 전파 가능하므로
+        //  이 늦은 READ_UP_TO는 순수한 no-op이어야 한다)
+        SpaceMember senderParticipant = spaceMemberRepository
+                .findChatRoomBy(chatRoomId, sender.getId());
+        assertThat(senderParticipant.getLastReadMessageId()).isEqualTo(latestChatId);
+
+        long senderEventCountAfterLateReadUpTo = events.stream(PublishReadEvent.class)
+                .filter(event -> event.getMemberId().equals(sender.getId()))
+                .count();
+        assertThat(senderEventCountAfterLateReadUpTo).isEqualTo(2); // 추가 발행 없음
     }
 
     @Test

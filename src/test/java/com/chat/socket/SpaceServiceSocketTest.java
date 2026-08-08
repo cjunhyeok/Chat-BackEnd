@@ -1087,7 +1087,10 @@ public class SpaceServiceSocketTest {
         String firstJSessionId = memberFixture.loginRequestBy(firstUsername, port);
         socketFixture.connectSocket(firstJSessionId, firstId, port, firstMessages, new CountDownLatch(1));
 
-        CountDownLatch latch = new CountDownLatch(2); // CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED (UPDATE_CHAT_ROOM 없음)
+        // CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED + (first 본인 cursor 전진에 따른) READ_EVENT_BATCH
+        // (UPDATE_CHAT_ROOM 없음). READ_EVENT_BATCH는 first/second 둘 다 room(spaceManager)에 등록돼 있어
+        // second에게도 전달된다.
+        CountDownLatch latch = new CountDownLatch(3);
         List<String> secondMessages = new ArrayList<>();
         String secondJSessionId = memberFixture.loginRequestBy(secondUsername, port);
         socketFixture.connectSocket(secondJSessionId, secondId, port, secondMessages, latch);
@@ -1108,17 +1111,19 @@ public class SpaceServiceSocketTest {
         // when
         spaceService.broadCastMessage(firstId, sendChat);
 
-        // then: 메시지 생성 경로는 CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED만 전송하고 UPDATE_CHAT_ROOM은 더 이상 발행하지 않는다
+        // then: 메시지 생성 경로는 CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED + READ_EVENT_BATCH(sender cursor 전진)를
+        // 전송하고 UPDATE_CHAT_ROOM은 더 이상 발행하지 않는다. READ_EVENT_BATCH는 배치 스케줄러(100ms)를 통해 도착하므로
+        // latch 통과 이후에도 지연 도착하는 메시지가 없는지 짧게 대기 후 재확인한다.
         boolean received = latch.await(BROADCAST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(received).isTrue();
 
-        // latch 통과 이후에도 지연 도착하는 메시지가 없는지 확인하기 위해 짧게 대기
         Thread.sleep(SERVER_SESSION_REGISTER_WAIT_MS);
 
         List<String> messageTypes = secondMessages.stream()
                 .map(msg -> readTree(msg).get("messageType").asText())
                 .collect(Collectors.toList());
-        assertThat(messageTypes).containsExactlyInAnyOrder("CHAT_MESSAGE", "ROOM_MESSAGE_SUMMARY_UPDATED");
+        assertThat(messageTypes).containsExactlyInAnyOrder(
+                "CHAT_MESSAGE", "ROOM_MESSAGE_SUMMARY_UPDATED", "READ_EVENT_BATCH");
         assertThat(messageTypes).doesNotContain("UPDATE_CHAT_ROOM");
     }
 

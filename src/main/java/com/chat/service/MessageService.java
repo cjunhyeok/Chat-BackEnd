@@ -86,11 +86,27 @@ public class MessageService {
 
     private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
         Timer.Sample cursorUpdateSample = Timer.start(meterRegistry);
+        Long previousLastReadMessageId;
+        int updateCount;
         try {
-            spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
+            previousLastReadMessageId =
+                    spaceMemberRepository.findLastReadMessageIdBy(senderId, chatRoomId);
+            updateCount =
+                    spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
         } finally {
             cursorUpdateSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_CURSOR_UPDATE_DURATION));
         }
+
+        if (updateCount == 0) {
+            return;
+        }
+
+        publisher.publishEvent(new PublishReadEvent(
+                senderId,
+                chatRoomId,
+                previousLastReadMessageId,
+                chat.getId()
+        ));
     }
 
     @Transactional

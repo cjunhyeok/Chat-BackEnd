@@ -98,7 +98,8 @@ class IntegrationTextSocketHandlerTest {
         WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
         headers.add("Cookie", "JSESSIONID=" + JSessionId);
 
-        CountDownLatch latch = new CountDownLatch(2);
+        // CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED + (sender 본인 cursor 전진에 따른) READ_EVENT_BATCH = 3개
+        CountDownLatch latch = new CountDownLatch(3);
         List<String> receivedMessages = new ArrayList<>();
         TestWebSocketHandler handler = new TestWebSocketHandler(memberId, receivedMessages, latch);
 
@@ -124,10 +125,22 @@ class IntegrationTextSocketHandlerTest {
         // when
         session.sendMessage(new TextMessage(chat));
 
-        // then: CHAT_ENTER 제거 → CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED = 2개
+        // then: CHAT_MESSAGE + ROOM_MESSAGE_SUMMARY_UPDATED는 즉시, READ_EVENT_BATCH는 배치 스케줄러(100ms)를 통해 도착한다
         boolean received = latch.await(2, TimeUnit.SECONDS);
         assertThat(received).isTrue();
-        assertThat(receivedMessages).hasSize(2);
+        assertThat(receivedMessages).hasSize(3);
+
+        List<String> messageTypes = receivedMessages.stream()
+                .map(msg -> {
+                    try {
+                        return objectMapper.readTree(msg).get("messageType").asText();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+        assertThat(messageTypes).containsExactlyInAnyOrder(
+                "CHAT_MESSAGE", "ROOM_MESSAGE_SUMMARY_UPDATED", "READ_EVENT_BATCH");
     }
 
     @Test
