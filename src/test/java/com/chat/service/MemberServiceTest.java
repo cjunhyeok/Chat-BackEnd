@@ -10,6 +10,7 @@ import com.chat.repository.MemberRepository;
 import com.chat.service.dtos.LoginResponse;
 import com.chat.socket.manager.SpaceManager;
 import com.chat.socket.manager.WebsocketSessionManager;
+import com.chat.utils.consts.SessionConst;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,10 +18,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.socket.WebSocketSession;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @Transactional
 @SpringBootTest
@@ -168,6 +173,34 @@ class MemberServiceTest {
         // when & then
         assertThatThrownBy(() -> memberService.changePassword(memberId, "wrongPassword", "newPassword"))
                 .isInstanceOf(CustomException.class);
+    }
+
+    @Test
+    @DisplayName("removeSession을 호출하면 Space 구독, 활성 상태, 세션 registry가 모두 정리된다.")
+    void removeSession을_호출하면_Space_구독_활성_상태_세션_registry가_모두_정리된다() {
+        // given
+        Long memberId = 1L;
+        Long chatRoomId = 100L;
+
+        WebSocketSession session = mock(WebSocketSession.class);
+        given(session.getId()).willReturn("session-1");
+        given(session.getAttributes()).willReturn(Map.of(SessionConst.SESSION_ID, memberId));
+
+        websocketSessionManager.addSession(memberId, session);
+        spaceManager.registerSession(session);
+        spaceManager.addSessionToSpace(session, chatRoomId);
+
+        assertThat(websocketSessionManager.getSessionBy(memberId)).isNotEmpty();
+        assertThat(spaceManager.getWebSocketSessionBy(chatRoomId)).isNotEmpty();
+        assertThat(spaceManager.isSpaceActive(memberId, chatRoomId)).isTrue();
+
+        // when
+        memberService.removeSession(memberId, session);
+
+        // then
+        assertThat(websocketSessionManager.getSessionBy(memberId)).isEmpty();
+        assertThat(spaceManager.getWebSocketSessionBy(chatRoomId)).isEmpty();
+        assertThat(spaceManager.isSpaceActive(memberId, chatRoomId)).isFalse();
     }
 
     private Long joinMember(String username, String password, String nickname) {
