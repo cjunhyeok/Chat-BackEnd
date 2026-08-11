@@ -61,7 +61,6 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         Long loginMemberId = (Long) sessionObject;
         websocketSessionManager.addSession(loginMemberId, session);
         spaceManager.registerSession(session);
-
     }
 
     @Override
@@ -81,73 +80,22 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         try {
             switch (baseMessage.getMessageType()) {
                 case CHAT_MESSAGE:
-                    SendChat sendChat = (SendChat) baseMessage;
-                    Long chatRoomId = sendChat.getChatRoomId();
-
-                    if (spaceManager.getWebSocketSessionBy(chatRoomId).stream()
-                            .noneMatch(s -> s.getId().equals(session.getId()))) {
-                        log.warn("WS 처리 실패: 미참여 방에 메시지 전송, session={}, memberId={}, chatRoomId={}, messageType={}",
-                                session.getId(), memberId, chatRoomId, baseMessage.getMessageType());
-                        sendError(session, baseMessage.getMessageType(), chatRoomId,
-                                sendChat.getClientMessageId(), ErrorCode.ROOM_NOT_JOINED);
-                        break;
-                    }
-
-                    log.debug("CHAT_MESSAGE 수신: memberId={}, chatRoomId={}", memberId, chatRoomId);
-
-                    spaceService.broadCastMessage(memberId, sendChat);
-
+                    handleChatMessage(session, memberId, (SendChat) baseMessage);
                     break;
                 case ENTER_ROOM:
-                    meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_TOTAL).increment();
-                    Timer.Sample enterRoomSample = Timer.start(meterRegistry);
-                    EnterRoomRequest enterRoomRequest = (EnterRoomRequest) baseMessage;
-                    try {
-                        IdValidator.requireChatRoomId(enterRoomRequest.getChatRoomId());
-                        spaceService.validateParticipant(memberId, enterRoomRequest.getChatRoomId());
-                        WebSocketSession safeSession = websocketSessionManager.getWrappedSession(session);
-                        spaceManager.addSessionToSpace(safeSession, enterRoomRequest.getChatRoomId());
-                        sendEnterRoomAck(safeSession, enterRoomRequest.getChatRoomId());
-                        enterRoomSample.stop(meterRegistry.timer(WsMetricNames.WS_ENTER_ROOM_ACK_DURATION));
-                    } catch (CustomException e) {
-                        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_ERROR_TOTAL,
-                                "reason", mapMetricReason(e.getErrorCode())).increment();
-                        throw e;
-                    } catch (Exception e) {
-                        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_ERROR_TOTAL,
-                                "reason", "INTERNAL_ERROR").increment();
-                        throw e;
-                    }
+                    handleEnterRoom(session, memberId, (EnterRoomRequest) baseMessage);
                     break;
                 case ROOM_ACTIVE:
-                    RoomActiveRequest activeRequest = (RoomActiveRequest) baseMessage;
-                    Long activeRoomId = activeRequest.getChatRoomId();
-                    spaceManager.activateSpace(session.getId(), activeRoomId);
-                    messageService.onRoomActive(memberId, activeRoomId);
+                    handleRoomActive(session, memberId, (RoomActiveRequest) baseMessage);
                     break;
                 case ROOM_INACTIVE:
-                    RoomInactiveRequest inactiveRequest = (RoomInactiveRequest) baseMessage;
-                    spaceManager.deactivateSpace(session.getId(), inactiveRequest.getChatRoomId());
+                    handleRoomInactive(session, (RoomInactiveRequest) baseMessage);
                     break;
                 case READ_UP_TO:
-                    ReadUpToRequest readUpToRequest = (ReadUpToRequest) baseMessage;
-                    Long readUpToRoomId = readUpToRequest.getChatRoomId();
-
-                    if (spaceManager.getWebSocketSessionBy(readUpToRoomId).stream()
-                            .noneMatch(s -> s.getId().equals(session.getId()))) {
-                        sendError(session, baseMessage.getMessageType(), readUpToRoomId, null, ErrorCode.ROOM_NOT_JOINED);
-                        break;
-                    }
-
-                    messageService.onReadUpTo(memberId, readUpToRoomId, readUpToRequest.getLastReadMessageId());
+                    handleReadUpTo(session, memberId, (ReadUpToRequest) baseMessage);
                     break;
                 case DISCUSSION_MESSAGE:
-                    SendDiscussionMessage sendDiscussionMessage = (SendDiscussionMessage) baseMessage;
-                    discussionMessageService.broadcastDiscussionMessage(
-                            sendDiscussionMessage.getDiscussionId(),
-                            memberId,
-                            sendDiscussionMessage.getContent()
-                    );
+                    handleDiscussionMessage(memberId, (SendDiscussionMessage) baseMessage);
                     break;
                 default:
                     log.warn("WS 처리 실패: 알 수 없는 messageType, session={}, memberId={}, messageType={}",
@@ -165,6 +113,74 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             sendError(session, baseMessage.getMessageType(), extractChatRoomId(baseMessage),
                     extractClientMessageId(baseMessage), ErrorCode.UNEXPECTED_ERROR);
         }
+    }
+
+    private void handleChatMessage(WebSocketSession session, Long memberId, SendChat sendChat) {
+        Long chatRoomId = sendChat.getChatRoomId();
+
+        if (!isSessionInRoom(session, chatRoomId)) {
+            log.warn("WS 처리 실패: 미참여 방에 메시지 전송, session={}, memberId={}, chatRoomId={}, messageType={}",
+                    session.getId(), memberId, chatRoomId, sendChat.getMessageType());
+            sendError(session, sendChat.getMessageType(), chatRoomId,
+                    sendChat.getClientMessageId(), ErrorCode.ROOM_NOT_JOINED);
+            return;
+        }
+
+        log.debug("CHAT_MESSAGE 수신: memberId={}, chatRoomId={}", memberId, chatRoomId);
+
+        spaceService.broadCastMessage(memberId, sendChat);
+    }
+
+    private void handleEnterRoom(WebSocketSession session, Long memberId, EnterRoomRequest request) throws Exception {
+        Timer.Sample enterRoomSample = startEnterRoomMetric();
+        try {
+            IdValidator.requireChatRoomId(request.getChatRoomId());
+            spaceService.validateParticipant(memberId, request.getChatRoomId());
+            WebSocketSession safeSession = websocketSessionManager.getWrappedSession(session);
+            spaceManager.addSessionToSpace(safeSession, request.getChatRoomId());
+            sendEnterRoomAck(safeSession, request.getChatRoomId());
+            stopEnterRoomMetric(enterRoomSample);
+        } catch (CustomException e) {
+            recordEnterRoomError(mapMetricReason(e.getErrorCode()));
+            throw e;
+        } catch (Exception e) {
+            recordEnterRoomError("INTERNAL_ERROR");
+            throw e;
+        }
+    }
+
+    private void handleRoomActive(WebSocketSession session, Long memberId, RoomActiveRequest request) {
+        Long activeRoomId = request.getChatRoomId();
+        spaceManager.activateSpace(session.getId(), activeRoomId);
+        messageService.onRoomActive(memberId, activeRoomId);
+    }
+
+    private void handleRoomInactive(WebSocketSession session, RoomInactiveRequest request) {
+        spaceManager.deactivateSpace(session.getId(), request.getChatRoomId());
+    }
+
+    private void handleReadUpTo(WebSocketSession session, Long memberId, ReadUpToRequest request) {
+        Long readUpToRoomId = request.getChatRoomId();
+
+        if (!isSessionInRoom(session, readUpToRoomId)) {
+            sendError(session, request.getMessageType(), readUpToRoomId, null, ErrorCode.ROOM_NOT_JOINED);
+            return;
+        }
+
+        messageService.onReadUpTo(memberId, readUpToRoomId, request.getLastReadMessageId());
+    }
+
+    private void handleDiscussionMessage(Long memberId, SendDiscussionMessage request) {
+        discussionMessageService.broadcastDiscussionMessage(
+                request.getDiscussionId(),
+                memberId,
+                request.getContent()
+        );
+    }
+
+    private boolean isSessionInRoom(WebSocketSession session, Long chatRoomId) {
+        return spaceManager.getWebSocketSessionBy(chatRoomId).stream()
+                .anyMatch(s -> s.getId().equals(session.getId()));
     }
 
     private void sendEnterRoomAck(WebSocketSession session, Long chatRoomId) {
@@ -213,7 +229,20 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         return null;
     }
 
-    private String mapErrorCode(ErrorCode errorCode) {
+    private Timer.Sample startEnterRoomMetric() {
+        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_TOTAL).increment();
+        return Timer.start(meterRegistry);
+    }
+
+    private void stopEnterRoomMetric(Timer.Sample sample) {
+        sample.stop(meterRegistry.timer(WsMetricNames.WS_ENTER_ROOM_ACK_DURATION));
+    }
+
+    private void recordEnterRoomError(String reason) {
+        meterRegistry.counter(WsMetricNames.WS_ENTER_ROOM_ERROR_TOTAL, "reason", reason).increment();
+    }
+
+    private String mapCommonReason(ErrorCode errorCode) {
         return switch (errorCode) {
             case SPACE_NOT_FOUND -> "ROOM_NOT_FOUND";
             // TODO: MEMBER_NOT_FOUND는 "회원을 찾을 수 없음"과 "인증되지 않음"이 의미상 다르지만,
@@ -221,21 +250,24 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             // 클라이언트가 두 케이스를 구분해야 할 필요가 생기면 별도 errorCode(예: MEMBER_NOT_FOUND)로 분리할 것.
             case USER_NOT_AUTHENTICATED, MEMBER_NOT_FOUND -> "UNAUTHORIZED";
             case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE -> "INVALID_MESSAGE";
+            case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
+            default -> null;
+        };
+    }
+
+    private String mapErrorCode(ErrorCode errorCode) {
+        String common = mapCommonReason(errorCode);
+        if (common != null) return common;
+        return switch (errorCode) {
             case ROOM_NOT_JOINED -> "ROOM_NOT_JOINED";
             case MESSAGE_NOT_FOUND -> "MESSAGE_NOT_FOUND";
-            case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
             default -> "INTERNAL_ERROR";
         };
     }
 
     private String mapMetricReason(ErrorCode errorCode) {
-        return switch (errorCode) {
-            case SPACE_NOT_FOUND -> "ROOM_NOT_FOUND";
-            case USER_NOT_AUTHENTICATED, MEMBER_NOT_FOUND -> "UNAUTHORIZED";
-            case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE -> "INVALID_MESSAGE";
-            case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
-            default -> "UNKNOWN";
-        };
+        String common = mapCommonReason(errorCode);
+        return common != null ? common : "UNKNOWN";
     }
 
     @Override
