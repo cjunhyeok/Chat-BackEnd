@@ -53,37 +53,6 @@ public class SpaceService {
     private final MemberRepository memberRepository;
 
     @Transactional
-    public void broadCastMessage(Long memberId, SendChat sendChat) {
-        Timer.Sample flowSample = Timer.start(meterRegistry);
-        try {
-            Long chatRoomId = sendChat.getChatRoomId();
-            Message savedMessage = messageService.saveMessageEntity(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
-
-            Long unreadMemberCount = messageService.countMessageUnreadMembers(savedMessage.getId());
-
-            BroadcastChat broadcastChat = BroadcastChat.builder()
-                    .messageType(MessageType.CHAT_MESSAGE)
-                    .senderId(memberId)
-                    .senderNickname(savedMessage.getMember().getNickname())
-                    .chatRoomId(chatRoomId)
-                    .message(savedMessage.getContent())
-                    .chatId(savedMessage.getId())
-                    .unreadMemberCount(unreadMemberCount)
-                    .createdDate(savedMessage.getCreatedDate())
-                    .clientMessageId(savedMessage.getClientMessageId())
-                    .build();
-
-            RoomMessageSummaryUpdated roomMessageSummaryUpdated = RoomMessageSummaryUpdated.from(savedMessage);
-            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
-
-            publisher.publishEvent(new PublishMessageEvent(
-                    broadcastChat, chatRoomId, roomMessageSummaryUpdated, recipientMemberIds, System.nanoTime()));
-        } finally {
-            flowSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_FLOW_DURATION));
-        }
-    }
-
-    @Transactional
     public Long saveSpace(SaveSpaceDTO saveSpaceDTO) {
         Member sender = memberRepository.findById(saveSpaceDTO.getSenderId())
                 .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
@@ -103,13 +72,6 @@ public class SpaceService {
         );
 
         return createSpaceSummaryResponse(findMember.getId());
-    }
-
-    public void validateParticipant(Long memberId, Long chatRoomId) {
-        SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
-        if (participant == null) {
-            throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
-        }
     }
 
     private List<SpaceSummaryResponse> createSpaceSummaryResponse(Long memberId) {
@@ -163,22 +125,26 @@ public class SpaceService {
                 .toList();
     }
 
-    @Transactional
-    public void leaveSpace(Long memberId, Long chatRoomId) {
-        SpaceMember participant
-                = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
+    public List<SpaceMemberResponse> findSpaceMembers(Long memberId, Long chatRoomId) {
+
+        SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
         if (participant == null) {
             throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
         }
 
-        spaceMemberRepository.deleteBy(chatRoomId, memberId);
+        return spaceMemberRepository.findAllFetchMemberBy(chatRoomId)
+                .stream()
+                .map(crp -> new SpaceMemberResponse(
+                        crp.getMember().getId(),
+                        crp.getMember().getNickname()
+                ))
+                .collect(Collectors.toList());
+    }
 
-        Set<WebSocketSession> sessions = new HashSet<>(spaceManager.getWebSocketSessionBy(chatRoomId));
-        for (WebSocketSession session : sessions) {
-            Long sessionMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-            if (memberId.equals(sessionMemberId)) {
-                spaceManager.removeSpaceSession(chatRoomId, session);
-            }
+    public void validateParticipant(Long memberId, Long chatRoomId) {
+        SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
+        if (participant == null) {
+            throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
         }
     }
 
@@ -202,20 +168,23 @@ public class SpaceService {
         return RenameSpaceResponse.from(space);
     }
 
-    public List<SpaceMemberResponse> findSpaceMembers(Long memberId, Long chatRoomId) {
-
-        SpaceMember participant = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
+    @Transactional
+    public void leaveSpace(Long memberId, Long chatRoomId) {
+        SpaceMember participant
+                = spaceMemberRepository.findChatRoomBy(chatRoomId, memberId);
         if (participant == null) {
             throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
         }
 
-        return spaceMemberRepository.findAllFetchMemberBy(chatRoomId)
-                .stream()
-                .map(crp -> new SpaceMemberResponse(
-                        crp.getMember().getId(),
-                        crp.getMember().getNickname()
-                ))
-                .collect(Collectors.toList());
+        spaceMemberRepository.deleteBy(chatRoomId, memberId);
+
+        Set<WebSocketSession> sessions = new HashSet<>(spaceManager.getWebSocketSessionBy(chatRoomId));
+        for (WebSocketSession session : sessions) {
+            Long sessionMemberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+            if (memberId.equals(sessionMemberId)) {
+                spaceManager.removeSpaceSession(chatRoomId, session);
+            }
+        }
     }
 
     @Transactional(readOnly = true)
@@ -288,6 +257,37 @@ public class SpaceService {
                     .messageType(MessageType.SPACE_INVITED)
                     .build();
             publisher.publishEvent(new PublishSpaceInvitedEvent(payload, chatRoomId, newlyInvitedMemberIds));
+        }
+    }
+
+    @Transactional
+    public void broadCastMessage(Long memberId, SendChat sendChat) {
+        Timer.Sample flowSample = Timer.start(meterRegistry);
+        try {
+            Long chatRoomId = sendChat.getChatRoomId();
+            Message savedMessage = messageService.saveMessageEntity(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
+
+            Long unreadMemberCount = messageService.countMessageUnreadMembers(savedMessage.getId());
+
+            BroadcastChat broadcastChat = BroadcastChat.builder()
+                    .messageType(MessageType.CHAT_MESSAGE)
+                    .senderId(memberId)
+                    .senderNickname(savedMessage.getMember().getNickname())
+                    .chatRoomId(chatRoomId)
+                    .message(savedMessage.getContent())
+                    .chatId(savedMessage.getId())
+                    .unreadMemberCount(unreadMemberCount)
+                    .createdDate(savedMessage.getCreatedDate())
+                    .clientMessageId(savedMessage.getClientMessageId())
+                    .build();
+
+            RoomMessageSummaryUpdated roomMessageSummaryUpdated = RoomMessageSummaryUpdated.from(savedMessage);
+            Set<Long> recipientMemberIds = new HashSet<>(memberRepository.findMemberIdsIn(chatRoomId));
+
+            publisher.publishEvent(new PublishMessageEvent(
+                    broadcastChat, chatRoomId, roomMessageSummaryUpdated, recipientMemberIds, System.nanoTime()));
+        } finally {
+            flowSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_FLOW_DURATION));
         }
     }
 }
