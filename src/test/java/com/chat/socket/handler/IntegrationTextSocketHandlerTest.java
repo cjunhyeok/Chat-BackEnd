@@ -569,11 +569,13 @@ class IntegrationTextSocketHandlerTest {
             spaceManager.addSessionToSpace(serverSession, chatRoomId);
 
             ObjectMapper objectMapper = new ObjectMapper();
+            String clientMessageId = "handler-chat-message-1";
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(chatRoomId)
                     .message("message")
+                    .clientMessageId(clientMessageId)
                     .build();
             String chat = objectMapper.writeValueAsString(sendChat);
 
@@ -585,17 +587,29 @@ class IntegrationTextSocketHandlerTest {
             assertThat(received).isTrue();
             assertThat(receivedMessages).hasSize(3);
 
-            List<String> messageTypes = receivedMessages.stream()
-                    .map(msg -> {
+            List<JsonNode> receivedNodes = receivedMessages.stream()
+                    .map(message -> {
                         try {
-                            return objectMapper.readTree(msg).get("messageType").asText();
+                            return objectMapper.readTree(message);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
                     })
                     .toList();
+
+            List<String> messageTypes = receivedNodes.stream()
+                    .map(node -> node.get("messageType").asText())
+                    .toList();
             assertThat(messageTypes).containsExactlyInAnyOrder(
                     "CHAT_MESSAGE", "ROOM_MESSAGE_SUMMARY_UPDATED", "READ_EVENT_BATCH");
+
+            JsonNode chatMessage = receivedNodes.stream()
+                    .filter(node -> "CHAT_MESSAGE".equals(node.get("messageType").asText()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(chatMessage.get("clientMessageId").asText())
+                    .isEqualTo(clientMessageId);
         }
 
         @Test
