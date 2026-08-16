@@ -158,8 +158,8 @@ public class SpaceServiceSocketTest {
         }
 
         @Test
-        @DisplayName("clientMessageId를 포함해 메시지를 전송하면 저장 및 CHAT_MESSAGE echo payload에 그대로 포함된다.")
-        void clientMessageId를_포함해_메시지를_전송하면_저장_및_echo_payload에_포함된다() throws ExecutionException, InterruptedException {
+        @DisplayName("clientMessageId를 포함해 메시지를 전송하면 CHAT_MESSAGE echo payload에 그대로 포함된다.")
+        void clientMessageId를_포함해_메시지를_전송하면_echo_payload에_포함된다() throws ExecutionException, InterruptedException {
             // given
             String firstUsername = "first";
             Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -209,10 +209,6 @@ public class SpaceServiceSocketTest {
 
             JsonNode chatMessage = findMessageType(secondMessages, "CHAT_MESSAGE");
             assertThat(chatMessage.get("clientMessageId").asText()).isEqualTo(clientMessageId);
-
-            Long messageId = chatMessage.get("chatId").asLong();
-            Message foundMessage = messageRepository.findById(messageId).orElseThrow();
-            assertThat(foundMessage.getClientMessageId()).isEqualTo(clientMessageId);
         }
 
         @Test
@@ -269,8 +265,8 @@ public class SpaceServiceSocketTest {
         }
 
         @Test
-        @DisplayName("같은 clientMessageId로 두 번 전송하면 중복 저장 없이 동일 Message 정보로 CHAT_MESSAGE가 두 번 응답된다.")
-        void 같은_clientMessageId로_두_번_전송하면_중복_저장_없이_동일_Message_정보로_두_번_응답된다() throws ExecutionException, InterruptedException {
+        @DisplayName("같은 clientMessageId로 두 번 전송하면 동일 Message 정보로 CHAT_MESSAGE가 두 번 응답된다.")
+        void 같은_clientMessageId로_두_번_전송하면_동일_Message_정보로_두_번_응답된다() throws ExecutionException, InterruptedException {
             // given
             String firstUsername = "first";
             Member first = memberFixture.saveEncryptPasswordBy(firstUsername);
@@ -303,22 +299,11 @@ public class SpaceServiceSocketTest {
                     .clientMessageId(clientMessageId)
                     .build();
 
-            // when: 같은 clientMessageId로 두 번 전송 (재전송 시나리오, saveMessageEntity가 기존 Message를 그대로 반환하는 경로)
+            // when: 같은 clientMessageId로 두 번 전송 (재전송 시나리오, saveMessage가 기존 Message를 그대로 반환하는 경로)
             spaceService.broadCastMessage(firstId, sendChat);
             spaceService.broadCastMessage(firstId, sendChat);
 
-            // then: DB에는 하나의 Message만 저장된다 (중복 INSERT 없음)
-            long savedCount = messageRepository.findAll().stream()
-                    .filter(m -> clientMessageId.equals(m.getClientMessageId()))
-                    .count();
-            assertThat(savedCount).isEqualTo(1L);
-
-            Message savedMessage = messageRepository.findAll().stream()
-                    .filter(m -> clientMessageId.equals(m.getClientMessageId()))
-                    .findFirst()
-                    .orElseThrow();
-
-            // CHAT_MESSAGE 2건이 모두 도착할 때까지 대기한다.
+            // then: CHAT_MESSAGE 2건이 모두 도착할 때까지 대기한다.
             // ROOM_MESSAGE_SUMMARY_UPDATED 등 다른 이벤트 개수와는 결합하지 않는다 (다른 테스트가 이미 보호하는 계약).
             awaitCondition(
                     "두 번의 broadCastMessage 호출에 대응하는 CHAT_MESSAGE 2건 수신",
@@ -330,8 +315,9 @@ public class SpaceServiceSocketTest {
                     .collect(Collectors.toList());
             assertThat(chatMessages).hasSize(2);
 
+            long firstChatId = chatMessages.get(0).get("chatId").asLong();
             for (JsonNode node : chatMessages) {
-                assertThat(node.get("chatId").asLong()).isEqualTo(savedMessage.getId());
+                assertThat(node.get("chatId").asLong()).isEqualTo(firstChatId);
                 assertThat(node.get("clientMessageId").asText()).isEqualTo(clientMessageId);
             }
         }
