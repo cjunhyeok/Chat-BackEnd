@@ -265,7 +265,7 @@ public class SpaceService {
         Timer.Sample flowSample = Timer.start(meterRegistry);
         try {
             Long chatRoomId = sendChat.getChatRoomId();
-            Message savedMessage = messageService.saveMessageEntity(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
+            Message savedMessage = messageService.saveMessage(memberId, chatRoomId, sendChat.getMessage(), sendChat.getClientMessageId());
 
             Long unreadMemberCount = messageService.countMessageUnreadMembers(savedMessage.getId());
 

@@ -46,17 +46,7 @@ public class MessageService {
     }
 
     @Transactional
-    public Long saveMessage(Long senderId, Long chatRoomId, String message) {
-        return saveMessage(senderId, chatRoomId, message, null);
-    }
-
-    @Transactional
-    public Long saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
-        return saveMessageEntity(senderId, chatRoomId, message, clientMessageId).getId();
-    }
-
-    @Transactional
-    public Message saveMessageEntity(Long senderId, Long chatRoomId, String message, String clientMessageId) {
+    public Message saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
 
         if (clientMessageId != null) {
             Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
@@ -115,6 +105,11 @@ public class MessageService {
         Member findMember = memberRepository.findById(memberId).orElseThrow(
                 () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
         );
+
+        SpaceMember spaceMember = spaceMemberRepository.findChatRoomBy(chatRoomId, findMember.getId());
+        if (spaceMember == null) {
+            throw new CustomException(ErrorCode.SPACE_ACCESS_DENIED);
+        }
 
         return createMessageHistoryResponse(chatRoomId, findMember.getId(), beforeChatId);
     }
