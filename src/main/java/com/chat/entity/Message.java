@@ -17,6 +17,12 @@ import lombok.NoArgsConstructor;
                         name = "idx_space_id_message_id",
                         columnList = "space_id, message_id DESC"
                 )
+        },
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uq_message_client_message_id",
+                        columnNames = "client_message_id"
+                )
         }
 )
 public class Message extends BaseEntity {

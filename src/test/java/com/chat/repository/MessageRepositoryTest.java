@@ -3,10 +3,12 @@ package com.chat.repository;
 import com.chat.entity.Message;
 import com.chat.entity.Space;
 import com.chat.entity.Member;
+import com.chat.entity.SpaceMember;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +29,8 @@ class MessageRepositoryTest {
     private SpaceRepository spaceRepository;
     @Autowired
     private MemberRepository memberRepository;
+    @Autowired
+    private SpaceMemberRepository spaceMemberRepository;
 
     @Test
     @DisplayName("spaceId로 마지막 메시지를 내림차순으로 조회한다.")
@@ -300,6 +304,28 @@ class MessageRepositoryTest {
 
         // then
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("sender와 room이 달라도 동일한 clientMessageId를 가진 Message는 중복 저장할 수 없다.")
+    void sender와_room이_달라도_동일한_clientMessageId를_가진_Message는_중복_저장할_수_없다() {
+        // given
+        Member senderA = createMember("senderA");
+        Member senderB = createMember("senderB");
+        Space roomA = createSpaceBy("roomA");
+        Space roomB = createSpaceBy("roomB");
+        spaceMemberRepository.save(SpaceMember.of(senderA, roomA));
+        spaceMemberRepository.save(SpaceMember.of(senderB, roomB));
+
+        String clientMessageId = nextClientMessageId();
+        Message first = Message.of("first", senderA, roomA, clientMessageId);
+        Message duplicate = Message.of("second", senderB, roomB, clientMessageId);
+
+        messageRepository.saveAndFlush(first);
+
+        // when & then
+        assertThatThrownBy(() -> messageRepository.saveAndFlush(duplicate))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
