@@ -249,7 +249,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             // 현재 errorCode 구조에 별도 코드가 없어 최소 변경으로 UNAUTHORIZED에 임시 매핑한다.
             // 클라이언트가 두 케이스를 구분해야 할 필요가 생기면 별도 errorCode(예: MEMBER_NOT_FOUND)로 분리할 것.
             case USER_NOT_AUTHENTICATED, MEMBER_NOT_FOUND -> "UNAUTHORIZED";
-            case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE -> "INVALID_MESSAGE";
+            case EMPTY_MESSAGE_CONTENT, INVALID_MESSAGE_FORMAT, UNKNOWN_MESSAGE_TYPE, INVALID_CLIENT_MESSAGE_ID -> "INVALID_MESSAGE";
             case UNEXPECTED_ERROR -> "INTERNAL_ERROR";
             default -> null;
         };
