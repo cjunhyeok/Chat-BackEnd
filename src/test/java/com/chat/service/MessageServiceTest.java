@@ -193,6 +193,106 @@ class MessageServiceTest {
         }
 
         @Test
+        @DisplayName("동일한 clientMessageId를 다른 sender가 사용하면 CLIENT_MESSAGE_ID_CONFLICT 예외가 발생하고 새 메시지를 저장하지 않는다.")
+        void saveMessageWithSameClientMessageIdAndDifferentSender_throwsClientMessageIdConflictTest(ApplicationEvents events) {
+            // given
+            Member senderA = fixture.savedMemberBy("senderA");
+            Member senderB = fixture.savedMemberBy("senderB");
+            Space chatRoom = fixture.savedChatRoomBy("title", List.of(senderA, senderB));
+            String message = "message";
+            String clientMessageId = nextClientMessageId();
+
+            Long firstChatId = messageService.saveMessage(senderA.getId(), chatRoom.getId(), message, clientMessageId).getId();
+            events.clear();
+
+            // when & then
+            assertThatThrownBy(() -> messageService.saveMessage(
+                    senderB.getId(),
+                    chatRoom.getId(),
+                    message,
+                    clientMessageId))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.CLIENT_MESSAGE_ID_CONFLICT);
+
+            long savedCount = messageRepository.findAll().stream()
+                    .filter(m -> clientMessageId.equals(m.getClientMessageId()))
+                    .count();
+            assertThat(savedCount).isEqualTo(1);
+
+            Message persisted = messageRepository.findById(firstChatId).get();
+            assertThat(persisted.getClientMessageId()).isEqualTo(clientMessageId);
+
+            SpaceMember senderBParticipant = spaceMemberRepository
+                    .findChatRoomBy(chatRoom.getId(), senderB.getId());
+            assertThat(senderBParticipant.getLastReadMessageId()).isNull();
+
+            assertThat(events.stream(PublishReadEvent.class).toList()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("동일한 clientMessageId를 다른 room으로 재전송하면 CLIENT_MESSAGE_ID_CONFLICT 예외가 발생하고 새 메시지를 저장하지 않는다.")
+        void saveMessageWithSameClientMessageIdAndDifferentChatRoom_throwsClientMessageIdConflictTest() {
+            // given
+            Member sender = fixture.savedMemberBy("sender");
+            Space roomA = fixture.savedChatRoomBy("roomA", List.of(sender));
+            Space roomB = fixture.savedChatRoomBy("roomB", List.of(sender));
+            String message = "message";
+            String clientMessageId = nextClientMessageId();
+
+            Long firstChatId = messageService.saveMessage(sender.getId(), roomA.getId(), message, clientMessageId).getId();
+
+            // when & then
+            assertThatThrownBy(() -> messageService.saveMessage(
+                    sender.getId(),
+                    roomB.getId(),
+                    message,
+                    clientMessageId))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.CLIENT_MESSAGE_ID_CONFLICT);
+
+            long savedCount = messageRepository.findAll().stream()
+                    .filter(m -> clientMessageId.equals(m.getClientMessageId()))
+                    .count();
+            assertThat(savedCount).isEqualTo(1);
+
+            Message persisted = messageRepository.findById(firstChatId).get();
+            assertThat(persisted.getSpace()).isEqualTo(roomA);
+        }
+
+        @Test
+        @DisplayName("동일한 clientMessageId로 다른 content를 전송하면 CLIENT_MESSAGE_ID_CONFLICT 예외가 발생하고 새 메시지를 저장하지 않는다.")
+        void saveMessageWithSameClientMessageIdAndDifferentContent_throwsClientMessageIdConflictTest() {
+            // given
+            Member sender = fixture.savedMemberBy("sender");
+            Space chatRoom = fixture.savedChatRoomBy("title", List.of(sender));
+            String firstMessage = "first";
+            String conflictMessage = "second";
+            String clientMessageId = nextClientMessageId();
+
+            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), firstMessage, clientMessageId).getId();
+
+            // when & then
+            assertThatThrownBy(() -> messageService.saveMessage(
+                    sender.getId(),
+                    chatRoom.getId(),
+                    conflictMessage,
+                    clientMessageId))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.CLIENT_MESSAGE_ID_CONFLICT);
+
+            long savedCount = messageRepository.findAll().stream()
+                    .filter(m -> clientMessageId.equals(m.getClientMessageId()))
+                    .count();
+            assertThat(savedCount).isEqualTo(1);
+
+            Message persisted = messageRepository.findById(firstChatId).get();
+            assertThat(persisted.getContent()).isEqualTo(firstMessage);
+        }
+
+        @Test
         @DisplayName("메시지 전송 시 sender의 lastReadMessageId가 저장된 messageId로 갱신된다.")
         void saveMessage_senderCursorUpdatedTest() {
             // given

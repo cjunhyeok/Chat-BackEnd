@@ -15,6 +15,7 @@ public enum ErrorCode {
     EMPTY_MESSAGE_CONTENT(HttpStatus.BAD_REQUEST, "메시지 내용이 비어있습니다."),
     EMPTY_DISCUSSION_MESSAGE_CONTENT(HttpStatus.BAD_REQUEST, "Discussion 메시지 내용이 비어있습니다."),
     INVALID_CLIENT_MESSAGE_ID(HttpStatus.BAD_REQUEST, "clientMessageId는 필수입니다."),
+    CLIENT_MESSAGE_ID_CONFLICT(HttpStatus.CONFLICT, "이미 다른 요청에 사용된 clientMessageId입니다."),
 
     DUPLICATED_USERNAME(HttpStatus.BAD_REQUEST, "이미 사용 중인 아이디입니다."),
     USERNAME_NOT_MATCH(HttpStatus.BAD_REQUEST, "아이디가 일치하지 않습니다."),

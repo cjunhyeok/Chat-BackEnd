@@ -57,7 +57,13 @@ public class MessageService {
             idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
         }
         if (existing.isPresent()) {
-            return existing.get();
+            Message existingMessage = existing.get();
+
+            if (!isSameSendRequest(existingMessage, senderId, chatRoomId, message)) {
+                throw new CustomException(ErrorCode.CLIENT_MESSAGE_ID_CONFLICT);
+            }
+
+            return existingMessage;
         }
 
         Member findSender = memberRepository.findById(senderId).orElseThrow(
@@ -77,6 +83,12 @@ public class MessageService {
         if (clientMessageId == null || clientMessageId.isBlank()) {
             throw new CustomException(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
         }
+    }
+
+    private boolean isSameSendRequest(Message existingMessage, Long senderId, Long chatRoomId, String message) {
+        return Objects.equals(existingMessage.getMember().getId(), senderId)
+                && Objects.equals(existingMessage.getSpace().getId(), chatRoomId)
+                && Objects.equals(existingMessage.getContent(), message);
     }
 
     private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
