@@ -182,12 +182,16 @@ public class SampleDataInitializer {
                 Long senderId = memberIds.get(random.nextInt(memberIds.size()));
                 Member sender = entityManager.getReference(Member.class, senderId);
                 String content = SAMPLE_MESSAGES[random.nextInt(SAMPLE_MESSAGES.length)];
-                messageRepository.save(Message.of(content, sender, room));
+                messageRepository.save(Message.of(content, sender, room, sampleClientMessageId(i)));
             }
 
             entityManager.flush();
             entityManager.clear();
             return INITIAL_MESSAGE_COUNT;
+        }
+
+        private String sampleClientMessageId(int index) {
+            return "sample-init-message-" + index;
         }
     }
 }

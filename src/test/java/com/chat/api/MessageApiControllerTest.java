@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -40,8 +41,8 @@ class MessageApiControllerTest {
         Member member = fixture.savedMemberBy("member");
         Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
 
-        messageService.saveMessage(member.getId(), chatRoom.getId(), "first", null);
-        messageService.saveMessage(member.getId(), chatRoom.getId(), "second", null);
+        messageService.saveMessage(member.getId(), chatRoom.getId(), "first", nextClientMessageId());
+        messageService.saveMessage(member.getId(), chatRoom.getId(), "second", nextClientMessageId());
 
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(SessionConst.SESSION_ID, member.getId());
@@ -80,9 +81,9 @@ class MessageApiControllerTest {
         Member member = fixture.savedMemberBy("member");
         Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
 
-        messageService.saveMessage(member.getId(), chatRoom.getId(), "first", null);
-        messageService.saveMessage(member.getId(), chatRoom.getId(), "second", null);
-        Long thirdChatId = messageService.saveMessage(member.getId(), chatRoom.getId(), "third", null).getId();
+        messageService.saveMessage(member.getId(), chatRoom.getId(), "first", nextClientMessageId());
+        messageService.saveMessage(member.getId(), chatRoom.getId(), "second", nextClientMessageId());
+        Long thirdChatId = messageService.saveMessage(member.getId(), chatRoom.getId(), "third", nextClientMessageId()).getId();
 
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(SessionConst.SESSION_ID, member.getId());

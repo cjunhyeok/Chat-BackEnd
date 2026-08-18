@@ -47,18 +47,17 @@ public class MessageService {
 
     @Transactional
     public Message saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
+        validateClientMessageId(clientMessageId);
 
-        if (clientMessageId != null) {
-            Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
-            Optional<Message> existing;
-            try {
-                existing = messageRepository.findByClientMessageId(clientMessageId);
-            } finally {
-                idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
-            }
-            if (existing.isPresent()) {
-                return existing.get();
-            }
+        Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
+        Optional<Message> existing;
+        try {
+            existing = messageRepository.findByClientMessageId(clientMessageId);
+        } finally {
+            idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
+        }
+        if (existing.isPresent()) {
+            return existing.get();
         }
 
         Member findSender = memberRepository.findById(senderId).orElseThrow(
@@ -72,6 +71,12 @@ public class MessageService {
         updateSenderCursorOnSend(findSender.getId(), findChatRoom.getId(), savedChat);
 
         return savedChat;
+    }
+
+    private void validateClientMessageId(String clientMessageId) {
+        if (clientMessageId == null || clientMessageId.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
+        }
     }
 
     private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.*;
 
 @Transactional
@@ -190,7 +191,7 @@ class DiscussionRepositoryTest {
     }
 
     private Message createMessage(String content, Member member, Space space) {
-        return messageRepository.save(Message.of(content, member, space));
+        return messageRepository.save(Message.of(content, member, space, nextClientMessageId()));
     }
 
     private Discussion createDiscussion(Message message) {

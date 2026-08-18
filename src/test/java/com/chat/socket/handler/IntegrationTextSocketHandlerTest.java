@@ -18,6 +18,7 @@ import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.message.MessageType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.*;
 
 @AutoConfigureMockMvc
@@ -569,7 +571,7 @@ class IntegrationTextSocketHandlerTest {
             spaceManager.addSessionToSpace(serverSession, chatRoomId);
 
             ObjectMapper objectMapper = new ObjectMapper();
-            String clientMessageId = "handler-chat-message-1";
+            String clientMessageId = nextClientMessageId();
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
@@ -635,12 +637,13 @@ class IntegrationTextSocketHandlerTest {
             // ENTER_ROOM을 보내지 않아 chatRoomManager에 세션이 없는 상태
 
             ObjectMapper objectMapper = new ObjectMapper();
+            String clientMessageId = nextClientMessageId();
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(chatRoomId)
                     .message("blocked message")
-                    .clientMessageId("client-temp-1")
+                    .clientMessageId(clientMessageId)
                     .build();
 
             // when: 세션이 방에 없는 상태에서 CHAT_MESSAGE 전송
@@ -655,8 +658,64 @@ class IntegrationTextSocketHandlerTest {
             assertThat(node.get("errorCode").asText()).isEqualTo("ROOM_NOT_JOINED");
             assertThat(node.get("requestType").asText()).isEqualTo("CHAT_MESSAGE");
             assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
-            assertThat(node.get("clientMessageId").asText()).isEqualTo("client-temp-1");
+            assertThat(node.get("clientMessageId").asText()).isEqualTo(clientMessageId);
             assertThat(spaceManager.getWebSocketSessionBy(chatRoomId)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("clientMessageId가 누락된 CHAT_MESSAGE를 전송하면 INVALID_MESSAGE 에러 응답을 받는다.")
+        void clientMessageId가_누락된_CHAT_MESSAGE는_INVALID_MESSAGE_오류_응답을_받는다() throws ExecutionException, InterruptedException, IOException {
+            // given
+            String username = "username";
+            Member member = memberFixture.saveEncryptPasswordBy(username);
+            Long memberId = member.getId();
+
+            List<Member> participants = new ArrayList<>();
+            participants.add(member);
+            Space chatRoom = fixture.savedChatRoomBy("title", participants);
+            Long chatRoomId = chatRoom.getId();
+
+            String JSessionId = memberFixture.loginRequestBy(username, port);
+
+            CountDownLatch latch = new CountDownLatch(1);
+            List<String> receivedMessages = new ArrayList<>();
+            WebSocketSession session = socketFixture.connectSocket(
+                    JSessionId, memberId, port, receivedMessages, latch);
+
+            awaitCondition(
+                    "WebSocket session registration",
+                    () -> !websocketSessionManager.getSessionBy(memberId).isEmpty());
+            WebSocketSession serverSession = websocketSessionManager.getSessionBy(memberId).iterator().next();
+            spaceManager.addSessionToSpace(serverSession, chatRoomId);
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            // clientMessageId를 의도적으로 생략 — 이 테스트의 조건 자체이므로 nextClientMessageId()를 호출하지 않는다
+            SendChat sendChat = SendChat
+                    .builder()
+                    .messageType(MessageType.CHAT_MESSAGE)
+                    .chatRoomId(chatRoomId)
+                    .message("message")
+                    .build();
+
+            // when: clientMessageId 프로퍼티 자체가 없는 JSON을 전송
+            ObjectNode requestNode = objectMapper.valueToTree(sendChat);
+            requestNode.remove("clientMessageId");
+            String chat = objectMapper.writeValueAsString(requestNode);
+            session.sendMessage(new TextMessage(chat));
+
+            // then: MessageService.validateClientMessageId()가 Member/Space 조회, Message 저장, broadcast보다 먼저
+            // 예외를 던지므로 CHAT_MESSAGE/ROOM_MESSAGE_SUMMARY_UPDATED/READ_EVENT_BATCH는 발행될 수 없고
+            // ERROR 응답 1건만 수신된다
+            boolean received = latch.await(2, TimeUnit.SECONDS);
+            assertThat(received).isTrue();
+            assertThat(receivedMessages).hasSize(1);
+
+            JsonNode node = objectMapper.readTree(receivedMessages.get(0));
+            assertThat(node.get("messageType").asText()).isEqualTo("ERROR");
+            assertThat(node.get("requestType").asText()).isEqualTo("CHAT_MESSAGE");
+            assertThat(node.get("errorCode").asText()).isEqualTo("INVALID_MESSAGE");
+            assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
+            assertThat(node.get("clientMessageId").isNull()).isTrue();
         }
     }
 

@@ -37,22 +37,19 @@ public class Message extends BaseEntity {
     @JoinColumn(name = "space_id", nullable = false)
     private Space space;
 
-    @Column(name = "client_message_id", updatable = false)
+    @Column(name = "client_message_id", nullable = false, updatable = false)
     private String clientMessageId;
 
     private Message(String content, Member member, Space space, String clientMessageId) {
         validateContent(content);
         validateMember(member);
         validateSpace(space);
+        validateClientMessageId(clientMessageId);
 
         this.content = content;
         this.member = member;
         this.space = space;
         this.clientMessageId = clientMessageId;
-    }
-
-    public static Message of(String content, Member member, Space space) {
-        return new Message(content, member, space, null);
     }
 
     public static Message of(String content, Member member, Space space, String clientMessageId) {
@@ -74,6 +71,12 @@ public class Message extends BaseEntity {
     private static void validateSpace(Space space) {
         if (space == null) {
             throw new CustomException(ErrorCode.SPACE_NOT_FOUND);
+        }
+    }
+
+    private static void validateClientMessageId(String clientMessageId) {
+        if (clientMessageId == null || clientMessageId.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
         }
     }
 }

@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
@@ -66,7 +67,7 @@ class MessageServiceTest {
 
             String message = "message";
 
-            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, null).getId();
+            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, nextClientMessageId()).getId();
 
             // when
             Long unreadMemberCount = messageService.countMessageUnreadMembers(savedChatId);
@@ -98,31 +99,55 @@ class MessageServiceTest {
             String message = "message";
 
             // when
-            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, null).getId();
+            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, nextClientMessageId()).getId();
 
             // then
             Message chat = messageRepository.findById(savedChatId).get();
             assertThat(chat.getContent()).isEqualTo(message);
             assertThat(chat.getSpace()).isEqualTo(chatRoom);
             assertThat(chat.getMember()).isEqualTo(sender);
-            assertThat(chat.getClientMessageId()).isNull();
         }
 
         @Test
-        @DisplayName("clientMessageId가 없으면 항상 새로운 Message로 저장된다.")
-        void saveMessageWithoutClientMessageId_alwaysCreatesNewMessageTest() {
+        @DisplayName("clientMessageId가 null이면 INVALID_CLIENT_MESSAGE_ID 예외가 발생하고 저장되지 않는다.")
+        void saveMessageWithNullClientMessageId_throwsInvalidClientMessageIdTest() {
             // given
-            Member sender = fixture.savedMemberBy("sender");
-            Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender));
+            Long nonExistentSenderId = 999_999L;
+            Long nonExistentChatRoomId = 999_999L;
             String message = "hello";
 
-            // when
-            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, null).getId();
-            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, null).getId();
+            // when & then
+            assertThatThrownBy(() -> messageService.saveMessage(
+                    nonExistentSenderId,
+                    nonExistentChatRoomId,
+                    message,
+                    null))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
 
-            // then
-            assertThat(secondChatId).isNotEqualTo(firstChatId);
-            assertThat(messageRepository.findAll()).hasSize(2);
+            assertThat(messageRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("clientMessageId가 blank이면 INVALID_CLIENT_MESSAGE_ID 예외가 발생하고 저장되지 않는다.")
+        void saveMessageWithBlankClientMessageId_throwsInvalidClientMessageIdTest() {
+            // given
+            Long nonExistentSenderId = 999_999L;
+            Long nonExistentChatRoomId = 999_999L;
+            String message = "hello";
+
+            // when & then
+            assertThatThrownBy(() -> messageService.saveMessage(
+                    nonExistentSenderId,
+                    nonExistentChatRoomId,
+                    message,
+                    "   "))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(e -> ((CustomException) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
+
+            assertThat(messageRepository.findAll()).isEmpty();
         }
 
         @Test
@@ -132,7 +157,7 @@ class MessageServiceTest {
             Member sender = fixture.savedMemberBy("sender");
             Space chatRoom = fixture.savedChatRoomBy("title", List.of(sender));
             String message = "message";
-            String clientMessageId = "client-uuid-1234";
+            String clientMessageId = nextClientMessageId();
 
             // when
             Long savedChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, clientMessageId).getId();
@@ -152,7 +177,7 @@ class MessageServiceTest {
             Member sender = fixture.savedMemberBy("sender");
             Space chatRoom = fixture.savedChatRoomBy("title", List.of(sender));
             String message = "message";
-            String clientMessageId = "client-uuid-retry";
+            String clientMessageId = nextClientMessageId();
 
             // when
             Long firstChatId = messageService.saveMessage(sender.getId(), chatRoom.getId(), message, clientMessageId).getId();
@@ -176,7 +201,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
 
             // when
-            Long savedMessageId = messageService.saveMessage(sender.getId(), chatRoom.getId(), "hello", null).getId();
+            Long savedMessageId = messageService.saveMessage(sender.getId(), chatRoom.getId(), "hello", nextClientMessageId()).getId();
             em.clear();
 
             // then
@@ -195,7 +220,7 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // when: sender의 첫 메시지 전송 (cursor 이전 상태 = null)
-            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", null).getId();
+            Long savedChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", nextClientMessageId()).getId();
 
             // then
             List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
@@ -220,8 +245,8 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // when: cursor 90 → message 100 → message 101에 해당하는 연속 전송
-            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first", null).getId();
-            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", null).getId();
+            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first", nextClientMessageId()).getId();
+            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", nextClientMessageId()).getId();
 
             // then: (null,firstChatId), (firstChatId,secondChatId) 순서로 2건 발행
             List<PublishReadEvent> senderEvents = events.stream(PublishReadEvent.class)
@@ -244,7 +269,7 @@ class MessageServiceTest {
             Member receiver = fixture.savedMemberBy("receiver");
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
-            String clientMessageId = "client-uuid-retry-read-event";
+            String clientMessageId = nextClientMessageId();
 
             // when: 동일한 clientMessageId로 두 번 전송 (두 번째는 기존 메시지를 그대로 반환)
             Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", clientMessageId).getId();
@@ -274,7 +299,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
 
             // when
-            messageService.saveMessage(sender.getId(), chatRoom.getId(), "hello", null);
+            messageService.saveMessage(sender.getId(), chatRoom.getId(), "hello", nextClientMessageId());
             em.clear();
 
             // then
@@ -297,7 +322,7 @@ class MessageServiceTest {
                     nonExistentSenderId,
                     chatRoom.getId(),
                     message,
-                    null))
+                    nextClientMessageId()))
                     .isInstanceOf(CustomException.class)
                     .extracting(e -> ((CustomException) e).getErrorCode())
                     .isEqualTo(ErrorCode.MEMBER_NOT_FOUND);
@@ -318,7 +343,7 @@ class MessageServiceTest {
                     sender.getId(),
                     nonExistentChatRoomId,
                     message,
-                    null))
+                    nextClientMessageId()))
                     .isInstanceOf(CustomException.class)
                     .extracting(e -> ((CustomException) e).getErrorCode())
                     .isEqualTo(ErrorCode.SPACE_NOT_FOUND);
@@ -347,9 +372,9 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("title", participants);
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(firstMember.getId(), chatRoomId, "message", null).getId();
-            messageService.saveMessage(secondMember.getId(), chatRoomId, "secondMessage", null);
-            messageService.saveMessage(secondMember.getId(), chatRoomId, "thirdMessage", null);
+            Long firstChatId = messageService.saveMessage(firstMember.getId(), chatRoomId, "message", nextClientMessageId()).getId();
+            messageService.saveMessage(secondMember.getId(), chatRoomId, "secondMessage", nextClientMessageId());
+            messageService.saveMessage(secondMember.getId(), chatRoomId, "thirdMessage", nextClientMessageId());
 
             // when
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, firstMember.getId(), null);
@@ -407,7 +432,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("title", List.of(firstMember, secondMember));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(firstMember.getId(), chatRoomId, "message", null);
+            messageService.saveMessage(firstMember.getId(), chatRoomId, "message", nextClientMessageId());
 
             // 첫 번째 입장: secondMember의 미읽음 1개 → 읽음 처리
             messageService.findMessageHistory(chatRoomId, secondMember.getId(), null);
@@ -437,7 +462,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("title", List.of(firstMember, secondMember));
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(firstMember.getId(), chatRoomId, "message", null).getId();
+            Long firstChatId = messageService.saveMessage(firstMember.getId(), chatRoomId, "message", nextClientMessageId()).getId();
 
             // when: secondMember 입장 — 미읽음 1개 존재
             messageService.findMessageHistory(chatRoomId, secondMember.getId(), null);
@@ -465,7 +490,7 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             for (int i = 0; i < 31; i++) {
-                messageService.saveMessage(member.getId(), chatRoomId, "message" + i, null);
+                messageService.saveMessage(member.getId(), chatRoomId, "message" + i, nextClientMessageId());
             }
 
             // when
@@ -485,7 +510,7 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             for (int i = 0; i < 5; i++) {
-                messageService.saveMessage(member.getId(), chatRoomId, "message" + i, null);
+                messageService.saveMessage(member.getId(), chatRoomId, "message" + i, nextClientMessageId());
             }
 
             // when
@@ -504,9 +529,9 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "first", null).getId();
-            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", null).getId();
-            Long thirdChatId = messageService.saveMessage(member.getId(), chatRoomId, "third", null).getId();
+            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "first", nextClientMessageId()).getId();
+            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", nextClientMessageId()).getId();
+            Long thirdChatId = messageService.saveMessage(member.getId(), chatRoomId, "third", nextClientMessageId()).getId();
 
             // when
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, member.getId(), null);
@@ -527,9 +552,9 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "first", null).getId();
-            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", null).getId();
-            Long thirdChatId = messageService.saveMessage(member.getId(), chatRoomId, "third", null).getId();
+            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "first", nextClientMessageId()).getId();
+            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", nextClientMessageId()).getId();
+            Long thirdChatId = messageService.saveMessage(member.getId(), chatRoomId, "third", nextClientMessageId()).getId();
 
             // when: thirdChatId를 커서로 → first, second만 반환
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, member.getId(), thirdChatId);
@@ -550,9 +575,9 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(sender.getId(), chatRoomId, "first", null);
-            messageService.saveMessage(sender.getId(), chatRoomId, "second", null);
-            Long thirdChatId = messageService.saveMessage(sender.getId(), chatRoomId, "third", null).getId();
+            messageService.saveMessage(sender.getId(), chatRoomId, "first", nextClientMessageId());
+            messageService.saveMessage(sender.getId(), chatRoomId, "second", nextClientMessageId());
+            Long thirdChatId = messageService.saveMessage(sender.getId(), chatRoomId, "third", nextClientMessageId()).getId();
 
             // when: receiver가 커서로 이전 메시지 조회
             messageService.findMessageHistory(chatRoomId, receiver.getId(), thirdChatId);
@@ -572,8 +597,8 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(member.getId(), chatRoomId, "first", null);
-            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", null).getId();
+            messageService.saveMessage(member.getId(), chatRoomId, "first", nextClientMessageId());
+            Long secondChatId = messageService.saveMessage(member.getId(), chatRoomId, "second", nextClientMessageId()).getId();
 
             // when
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, member.getId(), secondChatId);
@@ -593,7 +618,7 @@ class MessageServiceTest {
             // 32개 저장 후 마지막 id를 커서로 → 이전 31개 존재 → hasMore=true
             Long cursorChatId = null;
             for (int i = 0; i < 32; i++) {
-                cursorChatId = messageService.saveMessage(member.getId(), chatRoomId, "message" + i, null).getId();
+                cursorChatId = messageService.saveMessage(member.getId(), chatRoomId, "message" + i, nextClientMessageId()).getId();
             }
 
             // when
@@ -612,7 +637,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "only message", null).getId();
+            Long firstChatId = messageService.saveMessage(member.getId(), chatRoomId, "only message", nextClientMessageId()).getId();
 
             // when: 첫 번째 메시지를 커서로 → 이전 메시지 없음
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, member.getId(), firstChatId);
@@ -632,7 +657,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("title", List.of(firstMember, secondMember));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(firstMember.getId(), chatRoomId, "message", null);
+            messageService.saveMessage(firstMember.getId(), chatRoomId, "message", nextClientMessageId());
 
             // 첫 번째 입장: 미읽음 읽음 처리 → 이벤트 발행됨
             messageService.findMessageHistory(chatRoomId, secondMember.getId(), null);
@@ -657,8 +682,8 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(me, other));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(other.getId(), chatRoomId, "first", null);
-            Long latestChatId = messageService.saveMessage(other.getId(), chatRoomId, "second", null).getId();
+            messageService.saveMessage(other.getId(), chatRoomId, "first", nextClientMessageId());
+            Long latestChatId = messageService.saveMessage(other.getId(), chatRoomId, "second", nextClientMessageId()).getId();
 
             // when
             messageService.findMessageHistory(chatRoomId, me.getId(), null);
@@ -696,8 +721,8 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(sender.getId(), chatRoomId, "first", null);
-            messageService.saveMessage(sender.getId(), chatRoomId, "second", null);
+            messageService.saveMessage(sender.getId(), chatRoomId, "first", nextClientMessageId());
+            messageService.saveMessage(sender.getId(), chatRoomId, "second", nextClientMessageId());
 
             // when
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId,
@@ -716,14 +741,14 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, me));
             Long chatRoomId = chatRoom.getId();
 
-            messageService.saveMessage(sender.getId(), chatRoomId, "first", null);
-            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", null).getId();
+            messageService.saveMessage(sender.getId(), chatRoomId, "first", nextClientMessageId());
+            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", nextClientMessageId()).getId();
 
             // 첫 입장: cursor가 secondChatId로 갱신됨
             messageService.findMessageHistory(chatRoomId, me.getId(), null);
 
             // 새 메시지 도착
-            messageService.saveMessage(sender.getId(), chatRoomId, "third", null);
+            messageService.saveMessage(sender.getId(), chatRoomId, "third", nextClientMessageId());
 
             // when: 두 번째 입장
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, me.getId(),
@@ -742,8 +767,8 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long sentChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", null).getId();
-            messageService.saveMessage(receiver.getId(), chatRoomId, "reply", null); // sender cursor 변화 없음
+            Long sentChatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", nextClientMessageId()).getId();
+            messageService.saveMessage(receiver.getId(), chatRoomId, "reply", nextClientMessageId()); // sender cursor 변화 없음
 
             // when
             MessageHistoryResponse response = messageService.findMessageHistory(chatRoomId, sender.getId(),
@@ -762,17 +787,17 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // msg1: Discussion 있음 (reply 2개)
-            Long chatId1 = messageService.saveMessage(member.getId(), chatRoomId, "msg1", null).getId();
+            Long chatId1 = messageService.saveMessage(member.getId(), chatRoomId, "msg1", nextClientMessageId()).getId();
             Message rootMessage1 = messageRepository.findById(chatId1).get();
             Discussion discussion1 = discussionRepository.save(Discussion.of(rootMessage1));
             discussionMessageRepository.save(DiscussionMessage.of("reply1", discussion1, member));
             discussionMessageRepository.save(DiscussionMessage.of("reply2", discussion1, member));
 
             // msg2: Discussion 없음
-            messageService.saveMessage(member.getId(), chatRoomId, "msg2", null);
+            messageService.saveMessage(member.getId(), chatRoomId, "msg2", nextClientMessageId());
 
             // msg3: Discussion 있음 (reply 5개)
-            Long chatId3 = messageService.saveMessage(member.getId(), chatRoomId, "msg3", null).getId();
+            Long chatId3 = messageService.saveMessage(member.getId(), chatRoomId, "msg3", nextClientMessageId()).getId();
             Message rootMessage3 = messageRepository.findById(chatId3).get();
             Discussion discussion3 = discussionRepository.save(Discussion.of(rootMessage3));
             for (int i = 1; i <= 5; i++) {
@@ -821,7 +846,7 @@ class MessageServiceTest {
             Member owner = fixture.savedMemberBy("owner");
             Member outsider = fixture.savedMemberBy("outsider");
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(owner));
-            messageService.saveMessage(owner.getId(), chatRoom.getId(), "hello", null);
+            messageService.saveMessage(owner.getId(), chatRoom.getId(), "hello", nextClientMessageId());
 
             // when & then
             assertThatThrownBy(() -> messageService.findMessageHistory(chatRoom.getId(), outsider.getId(), null))
@@ -845,11 +870,11 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // inactive 동안 메시지 5개 도착
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg1", null);
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg2", null);
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg3", null);
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg4", null);
-            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg5", null).getId();
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg1", nextClientMessageId());
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg2", nextClientMessageId());
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg3", nextClientMessageId());
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg4", nextClientMessageId());
+            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg5", nextClientMessageId()).getId();
 
             // when: ROOM_ACTIVE
             messageService.onRoomActive(receiver.getId(), chatRoomId);
@@ -887,7 +912,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg", null).getId();
+            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg", nextClientMessageId()).getId();
 
             // READ_UP_TO로 이미 최신까지 읽음 처리된 상태 (sender-only 정책에서 active 상태의 실제 catch-up 경로)
             messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
@@ -913,9 +938,9 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // inactive 동안 메시지 3개
-            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg1", null).getId();
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg2", null);
-            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg3", null).getId();
+            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg1", nextClientMessageId()).getId();
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg2", nextClientMessageId());
+            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "msg3", nextClientMessageId()).getId();
 
             // receiver cursor 상태 확인 (아직 읽음 처리 전이므로 null)
             Long cursorBefore = spaceMemberRepository
@@ -949,7 +974,7 @@ class MessageServiceTest {
             Long chatRoomId = chatRoom.getId();
 
             // inactive 동안 메시지 1개
-            messageService.saveMessage(sender.getId(), chatRoomId, "msg", null);
+            messageService.saveMessage(sender.getId(), chatRoomId, "msg", nextClientMessageId());
 
             // when: 같은 memberId로 ROOM_ACTIVE 두 번 (다중 세션 시뮬레이션)
             messageService.onRoomActive(receiver.getId(), chatRoomId); // 1st → cursor advance, 이벤트발행
@@ -977,7 +1002,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", null).getId();
+            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", nextClientMessageId()).getId();
 
             // when: receiver가 READ_UP_TO(chatId)
             messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
@@ -998,7 +1023,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", null).getId();
+            Long chatId = messageService.saveMessage(sender.getId(), chatRoomId, "hello", nextClientMessageId()).getId();
 
             // when
             messageService.onReadUpTo(receiver.getId(), chatRoomId, chatId);
@@ -1026,8 +1051,8 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first", null).getId();
-            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", null).getId();
+            Long firstChatId = messageService.saveMessage(sender.getId(), chatRoomId, "first", nextClientMessageId()).getId();
+            Long secondChatId = messageService.saveMessage(sender.getId(), chatRoomId, "second", nextClientMessageId()).getId();
 
             // 먼저 secondChatId까지 읽음 처리
             messageService.onReadUpTo(receiver.getId(), chatRoomId, secondChatId);
@@ -1056,13 +1081,13 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(sender, receiver));
             Long chatRoomId = chatRoom.getId();
 
-            Long baselineChatId = messageService.saveMessage(sender.getId(), chatRoomId, "baseline", null).getId(); // cursor: null -> 90
+            Long baselineChatId = messageService.saveMessage(sender.getId(), chatRoomId, "baseline", nextClientMessageId()).getId(); // cursor: null -> 90
 
             // 같은 방에서 receiver가 보낸 메시지 (91~99 구간에 해당하는, sender cursor보다 뒤처지는 messageId)
-            Long midChatId = messageService.saveMessage(receiver.getId(), chatRoomId, "mid", null).getId();
+            Long midChatId = messageService.saveMessage(receiver.getId(), chatRoomId, "mid", nextClientMessageId()).getId();
 
             // when: sender가 다음 메시지를 보내 cursor가 90 -> 100으로 한 번에 전진 (91~99 구간을 건너뜀)
-            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "latest", null).getId(); // cursor: 90 -> 100
+            Long latestChatId = messageService.saveMessage(sender.getId(), chatRoomId, "latest", nextClientMessageId()).getId(); // cursor: 90 -> 100
             em.flush(); em.clear();
 
             // given: sender cursor가 saveMessage에 의해 이미 latestChatId까지 전진했다 (late READ_UP_TO의 전제 조건)
@@ -1100,7 +1125,7 @@ class MessageServiceTest {
             Space chatRoom = fixture.savedChatRoomBy("room", List.of(member));
             Space otherRoom = fixture.savedChatRoomBy("otherRoom", List.of(member));
 
-            Long otherRoomChatId = messageService.saveMessage(member.getId(), otherRoom.getId(), "hello", null).getId();
+            Long otherRoomChatId = messageService.saveMessage(member.getId(), otherRoom.getId(), "hello", nextClientMessageId()).getId();
 
             // when & then
             assertThatThrownBy(() ->

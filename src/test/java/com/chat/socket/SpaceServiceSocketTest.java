@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.*;
 
 @AutoConfigureMockMvc
@@ -138,6 +139,7 @@ public class SpaceServiceSocketTest {
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(spaceId)
                     .message(message)
+                    .clientMessageId(nextClientMessageId())
                     .build();
 
             // when
@@ -190,7 +192,7 @@ public class SpaceServiceSocketTest {
             spaceManager.addSessionToSpace(secondServerSession, spaceId);
 
             String message = "message";
-            String clientMessageId = "client-uuid-5678";
+            String clientMessageId = nextClientMessageId();
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
@@ -243,12 +245,13 @@ public class SpaceServiceSocketTest {
             WebSocketSession secondServerSession = websocketSessionManager.getSessionBy(secondId).iterator().next();
             spaceManager.addSessionToSpace(secondServerSession, spaceId);
 
-            // SendChat에 chatRoomId, message만 포함 — senderId, senderNickname 없음
+            // SendChat에 chatRoomId, message, clientMessageId만 포함 — senderId, senderNickname 없음
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(spaceId)
                     .message("hello")
+                    .clientMessageId(nextClientMessageId())
                     .build();
 
             // when: memberId = firstId
@@ -290,7 +293,7 @@ public class SpaceServiceSocketTest {
             spaceManager.addSessionToSpace(firstServerSession, spaceId);
 
             String message = "retry message";
-            String clientMessageId = "client-uuid-retry-broadcast";
+            String clientMessageId = nextClientMessageId();
             SendChat sendChat = SendChat
                     .builder()
                     .messageType(MessageType.CHAT_MESSAGE)
@@ -357,6 +360,7 @@ public class SpaceServiceSocketTest {
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(spaceId)
                     .message(message)
+                    .clientMessageId(nextClientMessageId())
                     .build();
 
             // when
@@ -422,6 +426,7 @@ public class SpaceServiceSocketTest {
                     .messageType(MessageType.CHAT_MESSAGE)
                     .chatRoomId(spaceId)
                     .message("hello")
+                    .clientMessageId(nextClientMessageId())
                     .build();
 
             // when

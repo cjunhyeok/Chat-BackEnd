@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.*;
 
 @Transactional
@@ -40,11 +41,11 @@ class MessageRepositoryTest {
         Space chatRoom = createSpaceBy(title);
 
         String firstMessage = "first";
-        Message firstChat = Message.of(firstMessage, firstMember, chatRoom);
+        Message firstChat = Message.of(firstMessage, firstMember, chatRoom, nextClientMessageId());
         messageRepository.save(firstChat);
 
         String secondMessage = "second";
-        Message secondChat = Message.of(secondMessage, secondMember, chatRoom);
+        Message secondChat = Message.of(secondMessage, secondMember, chatRoom, nextClientMessageId());
         messageRepository.save(secondChat);
 
         Pageable limitOne = createLimitOne();
@@ -66,10 +67,10 @@ class MessageRepositoryTest {
         Space firstRoom = createSpaceBy("firstRoom");
         Space secondRoom = createSpaceBy("secondRoom");
 
-        messageRepository.save(Message.of("first-1", member, firstRoom));
-        Message lastOfFirst = messageRepository.save(Message.of("first-2", member, firstRoom));
+        messageRepository.save(Message.of("first-1", member, firstRoom, nextClientMessageId()));
+        Message lastOfFirst = messageRepository.save(Message.of("first-2", member, firstRoom, nextClientMessageId()));
 
-        Message lastOfSecond = messageRepository.save(Message.of("second-1", member, secondRoom));
+        Message lastOfSecond = messageRepository.save(Message.of("second-1", member, secondRoom, nextClientMessageId()));
 
         // when
         List<Message> lastChats = messageRepository
@@ -91,7 +92,7 @@ class MessageRepositoryTest {
         Space roomWithChat = createSpaceBy("roomWithChat");
         Space emptyRoom = createSpaceBy("emptyRoom");
 
-        Message chat = messageRepository.save(Message.of("message", member, roomWithChat));
+        Message chat = messageRepository.save(Message.of("message", member, roomWithChat, nextClientMessageId()));
 
         // when
         List<Message> lastChats = messageRepository
@@ -109,9 +110,9 @@ class MessageRepositoryTest {
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
 
-        Message first = messageRepository.save(Message.of("first", member, chatRoom));
-        Message second = messageRepository.save(Message.of("second", member, chatRoom));
-        Message third = messageRepository.save(Message.of("third", member, chatRoom));
+        Message first = messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        Message second = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
+        Message third = messageRepository.save(Message.of("third", member, chatRoom, nextClientMessageId()));
 
         Pageable limit2 = PageRequest.of(0, 2);
 
@@ -132,8 +133,8 @@ class MessageRepositoryTest {
         Space targetRoom = createSpaceBy("target");
         Space otherRoom = createSpaceBy("other");
 
-        Message targetChat = messageRepository.save(Message.of("target message", member, targetRoom));
-        messageRepository.save(Message.of("other message", member, otherRoom));
+        Message targetChat = messageRepository.save(Message.of("target message", member, targetRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("other message", member, otherRoom, nextClientMessageId()));
 
         Pageable limit10 = PageRequest.of(0, 10);
 
@@ -166,9 +167,9 @@ class MessageRepositoryTest {
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
 
-        Message first = messageRepository.save(Message.of("first", member, chatRoom));
-        Message second = messageRepository.save(Message.of("second", member, chatRoom));
-        Message third = messageRepository.save(Message.of("third", member, chatRoom));
+        Message first = messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        Message second = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
+        Message third = messageRepository.save(Message.of("third", member, chatRoom, nextClientMessageId()));
 
         Pageable limit10 = PageRequest.of(0, 10);
 
@@ -188,7 +189,7 @@ class MessageRepositoryTest {
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
 
-        Message firstChat = messageRepository.save(Message.of("only message", member, chatRoom));
+        Message firstChat = messageRepository.save(Message.of("only message", member, chatRoom, nextClientMessageId()));
 
         Pageable limit10 = PageRequest.of(0, 10);
 
@@ -207,9 +208,9 @@ class MessageRepositoryTest {
         Space targetRoom = createSpaceBy("target");
         Space otherRoom = createSpaceBy("other");
 
-        messageRepository.save(Message.of("other message", member, otherRoom));
-        Message targetFirst = messageRepository.save(Message.of("target first", member, targetRoom));
-        Message targetSecond = messageRepository.save(Message.of("target second", member, targetRoom));
+        messageRepository.save(Message.of("other message", member, otherRoom, nextClientMessageId()));
+        Message targetFirst = messageRepository.save(Message.of("target first", member, targetRoom, nextClientMessageId()));
+        Message targetSecond = messageRepository.save(Message.of("target second", member, targetRoom, nextClientMessageId()));
 
         Pageable limit10 = PageRequest.of(0, 10);
 
@@ -229,8 +230,8 @@ class MessageRepositoryTest {
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
 
-        messageRepository.save(Message.of("first", member, chatRoom));
-        Message latest = messageRepository.save(Message.of("second", member, chatRoom));
+        messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        Message latest = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
 
         // when
         Optional<Long> result = messageRepository.findLastMessageIdBy(chatRoom.getId());
@@ -261,9 +262,9 @@ class MessageRepositoryTest {
         Space targetRoom = createSpaceBy("target");
         Space otherRoom = createSpaceBy("other");
 
-        Message targetChat = messageRepository.save(Message.of("target", member, targetRoom));
-        messageRepository.save(Message.of("other", member, otherRoom));
-        messageRepository.save(Message.of("other2", member, otherRoom));
+        Message targetChat = messageRepository.save(Message.of("target", member, targetRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("other", member, otherRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("other2", member, otherRoom, nextClientMessageId()));
 
         // when
         Optional<Long> result = messageRepository.findLastMessageIdBy(targetRoom.getId());
@@ -279,7 +280,7 @@ class MessageRepositoryTest {
         // given
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
-        String clientMessageId = "client-uuid-1234";
+        String clientMessageId = nextClientMessageId();
 
         Message saved = messageRepository.save(Message.of("message", member, chatRoom, clientMessageId));
 
@@ -307,7 +308,7 @@ class MessageRepositoryTest {
         // given
         Member member = createMember("user");
         Space chatRoom = createSpaceBy("room");
-        Message chat = messageRepository.save(Message.of("message", member, chatRoom));
+        Message chat = messageRepository.save(Message.of("message", member, chatRoom, nextClientMessageId()));
 
         // when
         boolean exists = messageRepository.existsByIdAndSpaceId(chat.getId(), chatRoom.getId());
@@ -323,7 +324,7 @@ class MessageRepositoryTest {
         Member member = createMember("user");
         Space targetRoom = createSpaceBy("target");
         Space otherRoom = createSpaceBy("other");
-        Message otherChat = messageRepository.save(Message.of("other message", member, otherRoom));
+        Message otherChat = messageRepository.save(Message.of("other message", member, otherRoom, nextClientMessageId()));
 
         // when
         boolean exists = messageRepository.existsByIdAndSpaceId(otherChat.getId(), targetRoom.getId());
