@@ -261,6 +261,7 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
         return switch (errorCode) {
             case ROOM_NOT_JOINED -> "ROOM_NOT_JOINED";
             case MESSAGE_NOT_FOUND -> "MESSAGE_NOT_FOUND";
+            case CLIENT_MESSAGE_ID_CONFLICT -> "CLIENT_MESSAGE_ID_CONFLICT";
             default -> "INTERNAL_ERROR";
         };
     }

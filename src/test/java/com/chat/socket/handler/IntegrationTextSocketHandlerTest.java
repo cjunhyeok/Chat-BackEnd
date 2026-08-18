@@ -7,6 +7,7 @@ import com.chat.fixture.MemberFixture;
 import com.chat.fixture.SocketFixture;
 import com.chat.fixture.TestDataFixture;
 import com.chat.repository.DiscussionRepository;
+import com.chat.repository.MessageRepository;
 import com.chat.service.dtos.chat.EnterRoomRequest;
 import com.chat.service.dtos.chat.ReadUpToRequest;
 import com.chat.service.dtos.chat.RoomActiveRequest;
@@ -55,6 +56,8 @@ class IntegrationTextSocketHandlerTest {
     private SocketFixture socketFixture;
     @Autowired
     private DiscussionRepository discussionRepository;
+    @Autowired
+    private MessageRepository messageRepository;
 
     @Autowired
     private WebsocketSessionManager websocketSessionManager;
@@ -716,6 +719,65 @@ class IntegrationTextSocketHandlerTest {
             assertThat(node.get("errorCode").asText()).isEqualTo("INVALID_MESSAGE");
             assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
             assertThat(node.get("clientMessageId").isNull()).isTrue();
+        }
+
+        @Test
+        @DisplayName("다른 sender가 같은 clientMessageId를 사용하면 CLIENT_MESSAGE_ID_CONFLICT 에러 응답을 받는다.")
+        void 다른_sender가_같은_clientMessageId를_사용하면_CLIENT_MESSAGE_ID_CONFLICT_오류_응답을_받는다() throws ExecutionException, InterruptedException, IOException {
+            // given
+            String usernameA = "senderA";
+            String usernameB = "senderB";
+            Member memberA = memberFixture.saveEncryptPasswordBy(usernameA);
+            Member memberB = memberFixture.saveEncryptPasswordBy(usernameB);
+
+            List<Member> participants = new ArrayList<>();
+            participants.add(memberA);
+            participants.add(memberB);
+            Space chatRoom = fixture.savedChatRoomBy("title", participants);
+            Long chatRoomId = chatRoom.getId();
+
+            String message = "message";
+            String clientMessageId = nextClientMessageId();
+            // A 소유의 기존 Message를 미리 준비 (요청과 동일한 room/content, sender만 다름)
+            messageRepository.save(Message.of(message, memberA, chatRoom, clientMessageId));
+
+            String JSessionId = memberFixture.loginRequestBy(usernameB, port);
+
+            CountDownLatch latch = new CountDownLatch(1);
+            List<String> receivedMessages = new ArrayList<>();
+            WebSocketSession session = socketFixture.connectSocket(
+                    JSessionId, memberB.getId(), port, receivedMessages, latch);
+
+            awaitCondition(
+                    "WebSocket session registration",
+                    () -> !websocketSessionManager.getSessionBy(memberB.getId()).isEmpty());
+            WebSocketSession serverSession = websocketSessionManager.getSessionBy(memberB.getId()).iterator().next();
+            spaceManager.addSessionToSpace(serverSession, chatRoomId);
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            SendChat sendChat = SendChat
+                    .builder()
+                    .messageType(MessageType.CHAT_MESSAGE)
+                    .chatRoomId(chatRoomId)
+                    .message(message)
+                    .clientMessageId(clientMessageId)
+                    .build();
+            String json = objectMapper.writeValueAsString(sendChat);
+
+            // when: B가 A 소유의 기존 clientMessageId로 같은 room/content를 재요청
+            session.sendMessage(new TextMessage(json));
+
+            // then: MessageService의 sender 불일치 판정이 CLIENT_MESSAGE_ID_CONFLICT로 매핑되어 응답된다
+            boolean received = latch.await(2, TimeUnit.SECONDS);
+            assertThat(received).isTrue();
+            assertThat(receivedMessages).hasSize(1);
+
+            JsonNode node = objectMapper.readTree(receivedMessages.get(0));
+            assertThat(node.get("messageType").asText()).isEqualTo("ERROR");
+            assertThat(node.get("requestType").asText()).isEqualTo("CHAT_MESSAGE");
+            assertThat(node.get("errorCode").asText()).isEqualTo("CLIENT_MESSAGE_ID_CONFLICT");
+            assertThat(node.get("chatRoomId").asLong()).isEqualTo(chatRoomId);
+            assertThat(node.get("clientMessageId").asText()).isEqualTo(clientMessageId);
         }
     }
 
