@@ -44,6 +44,8 @@ public class MemberService {
             throw new CustomException(ErrorCode.DUPLICATED_USERNAME);
         }
 
+        validateRawPassword(request.getPassword());
+
         Member member = Member.of(
                 request.getUsername(),
                 passwordEncoder.encode(request.getPassword()),
@@ -111,6 +113,8 @@ public class MemberService {
             throw new CustomException(ErrorCode.PASSWORD_NOT_MATCH);
         }
 
+        validateRawPassword(newPassword);
+
         member.changePassword(passwordEncoder.encode(newPassword));
     }
 
@@ -119,5 +123,11 @@ public class MemberService {
         spaceManager.removeSessionFromSpace(closingSession);
         websocketSessionManager.removeSession(memberId, closingSession);
         spaceManager.removeSessionState(closingSession);
+    }
+
+    private void validateRawPassword(String password) {
+        if (password == null || password.isBlank()) {
+            throw new CustomException(ErrorCode.EMPTY_PASSWORD);
+        }
     }
 }

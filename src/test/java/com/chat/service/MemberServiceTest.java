@@ -14,6 +14,9 @@ import com.chat.utils.consts.SessionConst;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.transaction.TestTransaction;
@@ -164,15 +167,58 @@ class MemberServiceTest {
                 .isEqualTo(ErrorCode.DUPLICATED_USERNAME);
     }
 
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    @DisplayName("null 또는 blank 비밀번호로 회원가입하면 EMPTY_PASSWORD 예외가 발생한다.")
+    void null_또는_blank_비밀번호로_회원가입하면_EMPTY_PASSWORD_예외가_발생한다(String invalidPassword) {
+        // given
+        String username = "invalidPasswordJoinUser";
+        JoinRequest request = JoinRequest.builder()
+                .username(username)
+                .password(invalidPassword)
+                .nickname("nickname")
+                .build();
+
+        // when & then
+        assertThatThrownBy(() -> memberService.join(request))
+                .isInstanceOf(CustomException.class)
+                .extracting(ex -> ((CustomException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.EMPTY_PASSWORD);
+
+        assertThat(memberRepository.findByUsername(username)).isEmpty();
+    }
+
     @Test
-    @DisplayName("현재 비밀번호가 틀리면 비밀번호 변경 시 예외가 발생한다.")
-    void 현재_비밀번호가_틀리면_비밀번호_변경_시_예외가_발생한다() {
+    @DisplayName("현재 비밀번호가 틀리면 PASSWORD_NOT_MATCH 예외가 발생한다.")
+    void 현재_비밀번호가_틀리면_PASSWORD_NOT_MATCH_예외가_발생한다() {
         // given
         Long memberId = joinMember("user", "correctPassword", "nickname");
 
         // when & then
         assertThatThrownBy(() -> memberService.changePassword(memberId, "wrongPassword", "newPassword"))
-                .isInstanceOf(CustomException.class);
+                .isInstanceOf(CustomException.class)
+                .extracting(ex -> ((CustomException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.PASSWORD_NOT_MATCH);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "   "})
+    @DisplayName("null 또는 blank 새 비밀번호로 변경하면 EMPTY_PASSWORD 예외가 발생한다.")
+    void null_또는_blank_새_비밀번호로_변경하면_EMPTY_PASSWORD_예외가_발생한다(String invalidNewPassword) {
+        // given
+        Long memberId = joinMember("changePasswordTestUser", "currentPassword", "nickname");
+        Member member = memberRepository.findById(memberId).get();
+        String originalEncodedPassword = member.getPassword();
+
+        // when & then
+        assertThatThrownBy(() -> memberService.changePassword(memberId, "currentPassword", invalidNewPassword))
+                .isInstanceOf(CustomException.class)
+                .extracting(ex -> ((CustomException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.EMPTY_PASSWORD);
+
+        assertThat(member.getPassword()).isEqualTo(originalEncodedPassword);
     }
 
     @Test
