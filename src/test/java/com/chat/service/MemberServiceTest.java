@@ -176,6 +176,37 @@ class MemberServiceTest {
             TestTransaction.flagForCommit();
             TestTransaction.end();
         }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = {" ", "   "})
+        @DisplayName("null 또는 blank 비밀번호로 로그인하면 EMPTY_PASSWORD 예외가 발생한다.")
+        void null_또는_blank_비밀번호로_로그인하면_EMPTY_PASSWORD_예외가_발생한다(String invalidPassword) {
+            // given
+            Long joinMemberId = joinMember("loginEmptyPasswordTestUser", "correctPassword", "nickname");
+
+            TestTransaction.flagForCommit();
+            TestTransaction.end();
+            TestTransaction.start();
+
+            LoginRequest request = LoginRequest.builder()
+                    .username("loginEmptyPasswordTestUser")
+                    .password(invalidPassword)
+                    .build();
+
+            // when & then
+            try {
+                assertThatThrownBy(() -> memberService.login(request))
+                        .isInstanceOf(CustomException.class)
+                        .extracting(ex -> ((CustomException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.EMPTY_PASSWORD);
+            } finally {
+                // T1에서 커밋된 데이터는 자동 롤백되지 않으므로 직접 정리
+                memberRepository.deleteById(joinMemberId);
+                TestTransaction.flagForCommit();
+                TestTransaction.end();
+            }
+        }
     }
 
     @Nested
@@ -289,6 +320,25 @@ class MemberServiceTest {
                     .isInstanceOf(CustomException.class)
                     .extracting(ex -> ((CustomException) ex).getErrorCode())
                     .isEqualTo(ErrorCode.PASSWORD_NOT_MATCH);
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @ValueSource(strings = {" ", "   "})
+        @DisplayName("null 또는 blank 현재 비밀번호로 변경하면 EMPTY_PASSWORD 예외가 발생한다.")
+        void null_또는_blank_현재_비밀번호로_변경하면_EMPTY_PASSWORD_예외가_발생한다(String invalidCurrentPassword) {
+            // given
+            Long memberId = joinMember("currentPasswordEmptyTestUser", "correctPassword", "nickname");
+            Member member = memberRepository.findById(memberId).get();
+            String originalEncodedPassword = member.getPassword();
+
+            // when & then
+            assertThatThrownBy(() -> memberService.changePassword(memberId, invalidCurrentPassword, "newValidPassword"))
+                    .isInstanceOf(CustomException.class)
+                    .extracting(ex -> ((CustomException) ex).getErrorCode())
+                    .isEqualTo(ErrorCode.EMPTY_PASSWORD);
+
+            assertThat(member.getPassword()).isEqualTo(originalEncodedPassword);
         }
 
         @ParameterizedTest

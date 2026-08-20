@@ -61,6 +61,8 @@ public class MemberService {
             dbQuerySample.stop(meterRegistry.timer(LoginMetricNames.LOGIN_DB_QUERY_DURATION));
         }
 
+        validateRawPassword(request.getPassword());
+
         boolean isMatch = passwordEncoder.match(request.getPassword(), findMember.getPassword());
         if (!isMatch) {
             throw new CustomException(ErrorCode.PASSWORD_NOT_MATCH);
@@ -102,6 +104,8 @@ public class MemberService {
     public void changePassword(Long memberId, String currentPassword, String newPassword) {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
+
+        validateRawPassword(currentPassword);
 
         boolean isMatch = passwordEncoder.match(currentPassword, member.getPassword());
         if (!isMatch) {
