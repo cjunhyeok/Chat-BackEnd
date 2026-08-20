@@ -32,6 +32,20 @@ class BcryptPasswordEncoderTest {
     }
 
     @Test
+    @DisplayName("encode로 생성한 비밀번호는 원본 비밀번호와 match된다.")
+    void encode로_생성한_비밀번호는_원본_비밀번호와_match된다() {
+        // given
+        String rawPassword = "password";
+
+        // when
+        String encodedPassword = encoder.encode(rawPassword);
+
+        // then
+        assertThat(encoder.match(rawPassword, encodedPassword))
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("올바른 비밀번호는 true를 반환한다.")
     void 올바른_비밀번호는_true를_반환한다() {
         assertThat(encoder.match(RAW_PASSWORD, encodedPassword)).isTrue();
