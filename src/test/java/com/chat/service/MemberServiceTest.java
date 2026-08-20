@@ -9,10 +9,6 @@ import com.chat.exception.ErrorCode;
 import com.chat.repository.MemberRepository;
 import com.chat.service.dtos.LoginResponse;
 import com.chat.service.utils.PasswordEncoder;
-import com.chat.socket.manager.SpaceManager;
-import com.chat.socket.manager.WebsocketSessionManager;
-import com.chat.utils.consts.SessionConst;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,14 +19,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
 
 @Transactional
 @SpringBootTest
@@ -41,17 +33,7 @@ class MemberServiceTest {
     @Autowired
     private MemberRepository memberRepository;
     @Autowired
-    private WebsocketSessionManager websocketSessionManager;
-    @Autowired
-    private SpaceManager spaceManager;
-    @Autowired
     private PasswordEncoder passwordEncoder;
-
-    @BeforeEach
-    void setUp() {
-        websocketSessionManager.clearAll();
-        spaceManager.clearAll();
-    }
 
     @Nested
     @DisplayName("join")
@@ -74,7 +56,7 @@ class MemberServiceTest {
             Member findMember = memberRepository.findById(joinMemberId).get();
             assertThat(findMember.getId()).isEqualTo(joinMemberId);
             assertThat(findMember.getUsername()).isEqualTo("username");
-            assertThat(findMember.getPassword()).isNotEqualTo("password");
+            assertThat(passwordEncoder.match("password", findMember.getPassword())).isTrue();
         }
 
         @Test
@@ -130,8 +112,6 @@ class MemberServiceTest {
             // given
             Long joinMemberId = joinMember("username", "password", "nickname");
 
-            // login()은 Propagation.NOT_SUPPORTED로 실행되어 별도 TX에서 DB를 조회한다.
-            // join()으로 저장한 데이터가 별도 TX에서 보이려면 먼저 커밋되어야 한다.
             TestTransaction.flagForCommit();
             TestTransaction.end();
             TestTransaction.start();
@@ -176,8 +156,6 @@ class MemberServiceTest {
             // given
             Long joinMemberId = joinMember("loginPasswordTestUser", "correctPassword", "nickname");
 
-            // login()은 Propagation.NOT_SUPPORTED로 실행되어 별도 TX에서 DB를 조회한다.
-            // join()으로 저장한 데이터가 별도 TX에서 보이려면 먼저 커밋되어야 한다.
             TestTransaction.flagForCommit();
             TestTransaction.end();
             TestTransaction.start();
@@ -330,39 +308,6 @@ class MemberServiceTest {
                     .isEqualTo(ErrorCode.EMPTY_PASSWORD);
 
             assertThat(member.getPassword()).isEqualTo(originalEncodedPassword);
-        }
-    }
-
-    @Nested
-    @DisplayName("removeSession")
-    class RemoveSession {
-
-        @Test
-        @DisplayName("removeSession을 호출하면 Space 구독, 활성 상태, 세션 registry가 모두 정리된다.")
-        void removeSession을_호출하면_Space_구독_활성_상태_세션_registry가_모두_정리된다() {
-            // given
-            Long memberId = 1L;
-            Long chatRoomId = 100L;
-
-            WebSocketSession session = mock(WebSocketSession.class);
-            given(session.getId()).willReturn("session-1");
-            given(session.getAttributes()).willReturn(Map.of(SessionConst.SESSION_ID, memberId));
-
-            websocketSessionManager.addSession(memberId, session);
-            spaceManager.registerSession(session);
-            spaceManager.addSessionToSpace(session, chatRoomId);
-
-            assertThat(websocketSessionManager.getSessionBy(memberId)).isNotEmpty();
-            assertThat(spaceManager.getWebSocketSessionBy(chatRoomId)).isNotEmpty();
-            assertThat(spaceManager.isSpaceActive(memberId, chatRoomId)).isTrue();
-
-            // when
-            memberService.removeSession(memberId, session);
-
-            // then
-            assertThat(websocketSessionManager.getSessionBy(memberId)).isEmpty();
-            assertThat(spaceManager.getWebSocketSessionBy(chatRoomId)).isEmpty();
-            assertThat(spaceManager.isSpaceActive(memberId, chatRoomId)).isFalse();
         }
     }
 

@@ -5,7 +5,6 @@ import com.chat.exception.ErrorCode;
 import com.chat.service.DiscussionMessageService;
 import com.chat.service.SpaceService;
 import com.chat.service.MessageService;
-import com.chat.service.MemberService;
 import com.chat.service.dtos.chat.EnterRoomAckResponse;
 import com.chat.service.dtos.chat.EnterRoomRequest;
 import com.chat.service.dtos.chat.ErrorResponse;
@@ -44,7 +43,6 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
     private final SpaceManager spaceManager;
     private final SpaceService spaceService;
     private final MessageService messageService;
-    private final MemberService memberService;
     private final DiscussionMessageService discussionMessageService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
@@ -280,7 +278,9 @@ public class IntegrationTextSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        memberService.removeSession(loginMemberId, session);
+        spaceManager.removeSessionFromSpace(session);
+        websocketSessionManager.removeSession(loginMemberId, session);
+        spaceManager.removeSessionState(session);
     }
 
 }
