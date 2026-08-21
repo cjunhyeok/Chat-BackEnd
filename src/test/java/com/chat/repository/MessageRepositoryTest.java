@@ -37,6 +37,151 @@ class MessageRepositoryTest {
     private EntityManager em;
 
     @Test
+    @DisplayName("메시지가 있는 방의 최신 messageId를 반환한다.")
+    void 메시지가_있는_방의_최신_messageId를_반환한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+
+        messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        Message latest = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
+
+        // when
+        Optional<Long> result = messageRepository.findLastMessageIdBy(chatRoom.getId());
+
+        // then
+        assertThat(result).isPresent();
+        assertThat(result.get()).isEqualTo(latest.getId());
+    }
+
+    @Test
+    @DisplayName("메시지가 없는 방은 최신 messageId 조회 시 Optional.empty를 반환한다.")
+    void 메시지가_없는_방은_최신_messageId_조회_시_Optional_empty를_반환한다() {
+        // given
+        Space emptyRoom = createSpaceBy("empty");
+
+        // when
+        Optional<Long> result = messageRepository.findLastMessageIdBy(emptyRoom.getId());
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("최신 messageId 조회 시 다른 방의 메시지는 포함되지 않는다.")
+    void 최신_messageId_조회_시_다른_방의_메시지는_포함되지_않는다() {
+        // given
+        Member member = createMember("user");
+        Space targetRoom = createSpaceBy("target");
+        Space otherRoom = createSpaceBy("other");
+
+        Message targetChat = messageRepository.save(Message.of("target", member, targetRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("other", member, otherRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("other2", member, otherRoom, nextClientMessageId()));
+
+        // when
+        Optional<Long> result = messageRepository.findLastMessageIdBy(targetRoom.getId());
+
+        // then
+        assertThat(result).isPresent();
+        assertThat(result.get()).isEqualTo(targetChat.getId());
+    }
+
+    @Test
+    @DisplayName("clientMessageId로 메시지를 조회한다.")
+    void clientMessageId로_메시지를_조회한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+        String clientMessageId = nextClientMessageId();
+
+        Message saved = messageRepository.save(Message.of("message", member, chatRoom, clientMessageId));
+
+        // when
+        Optional<Message> result = messageRepository.findByClientMessageId(clientMessageId);
+
+        // then
+        assertThat(result).isPresent();
+        assertThat(result.get().getId()).isEqualTo(saved.getId());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 clientMessageId로 조회하면 빈 Optional을 반환한다.")
+    void 존재하지_않는_clientMessageId로_조회하면_빈_Optional을_반환한다() {
+        // when
+        Optional<Message> result = messageRepository.findByClientMessageId("non-existent-client-message-id");
+
+        // then
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("sender와 room이 달라도 동일한 clientMessageId를 가진 Message는 중복 저장할 수 없다.")
+    void sender와_room이_달라도_동일한_clientMessageId를_가진_Message는_중복_저장할_수_없다() {
+        // given
+        Member senderA = createMember("senderA");
+        Member senderB = createMember("senderB");
+        Space roomA = createSpaceBy("roomA");
+        Space roomB = createSpaceBy("roomB");
+        spaceMemberRepository.save(SpaceMember.of(senderA, roomA));
+        spaceMemberRepository.save(SpaceMember.of(senderB, roomB));
+
+        String clientMessageId = nextClientMessageId();
+        Message first = Message.of("first", senderA, roomA, clientMessageId);
+        Message duplicate = Message.of("second", senderB, roomB, clientMessageId);
+
+        messageRepository.saveAndFlush(first);
+
+        // when & then
+        assertThatThrownBy(() -> messageRepository.saveAndFlush(duplicate))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("같은 room 소속 messageId는 existsByIdAndSpaceId가 true를 반환한다.")
+    void 같은_room_소속_messageId는_existsByIdAndSpaceId가_true를_반환한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+        Message chat = messageRepository.save(Message.of("message", member, chatRoom, nextClientMessageId()));
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(chat.getId(), chatRoom.getId());
+
+        // then
+        assertThat(exists).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 room 소속 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
+    void 다른_room_소속_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
+        // given
+        Member member = createMember("user");
+        Space targetRoom = createSpaceBy("target");
+        Space otherRoom = createSpaceBy("other");
+        Message otherChat = messageRepository.save(Message.of("other message", member, otherRoom, nextClientMessageId()));
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(otherChat.getId(), targetRoom.getId());
+
+        // then
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
+    void 존재하지_않는_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
+        // given
+        Space chatRoom = createSpaceBy("room");
+
+        // when
+        boolean exists = messageRepository.existsByIdAndSpaceId(999_999_999L, chatRoom.getId());
+
+        // then
+        assertThat(exists).isFalse();
+    }
+
+    @Test
     @DisplayName("여러 spaceId로 각 방의 마지막 메시지를 일괄 조회한다.")
     void 여러_spaceId로_각_방의_마지막_메시지를_일괄_조회한다() {
         // given
@@ -265,151 +410,6 @@ class MessageRepositoryTest {
         assertThat(messages.get(0).getId()).isEqualTo(second.getId());
         assertThat(messages.get(1).getId()).isEqualTo(first.getId());
         assertThat(queryCount).isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName("메시지가 있는 방의 최신 messageId를 반환한다.")
-    void 메시지가_있는_방의_최신_messageId를_반환한다() {
-        // given
-        Member member = createMember("user");
-        Space chatRoom = createSpaceBy("room");
-
-        messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
-        Message latest = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
-
-        // when
-        Optional<Long> result = messageRepository.findLastMessageIdBy(chatRoom.getId());
-
-        // then
-        assertThat(result).isPresent();
-        assertThat(result.get()).isEqualTo(latest.getId());
-    }
-
-    @Test
-    @DisplayName("메시지가 없는 방은 최신 messageId 조회 시 Optional.empty를 반환한다.")
-    void 메시지가_없는_방은_최신_messageId_조회_시_Optional_empty를_반환한다() {
-        // given
-        Space emptyRoom = createSpaceBy("empty");
-
-        // when
-        Optional<Long> result = messageRepository.findLastMessageIdBy(emptyRoom.getId());
-
-        // then
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("최신 messageId 조회 시 다른 방의 메시지는 포함되지 않는다.")
-    void 최신_messageId_조회_시_다른_방의_메시지는_포함되지_않는다() {
-        // given
-        Member member = createMember("user");
-        Space targetRoom = createSpaceBy("target");
-        Space otherRoom = createSpaceBy("other");
-
-        Message targetChat = messageRepository.save(Message.of("target", member, targetRoom, nextClientMessageId()));
-        messageRepository.save(Message.of("other", member, otherRoom, nextClientMessageId()));
-        messageRepository.save(Message.of("other2", member, otherRoom, nextClientMessageId()));
-
-        // when
-        Optional<Long> result = messageRepository.findLastMessageIdBy(targetRoom.getId());
-
-        // then
-        assertThat(result).isPresent();
-        assertThat(result.get()).isEqualTo(targetChat.getId());
-    }
-
-    @Test
-    @DisplayName("clientMessageId로 메시지를 조회한다.")
-    void clientMessageId로_메시지를_조회한다() {
-        // given
-        Member member = createMember("user");
-        Space chatRoom = createSpaceBy("room");
-        String clientMessageId = nextClientMessageId();
-
-        Message saved = messageRepository.save(Message.of("message", member, chatRoom, clientMessageId));
-
-        // when
-        Optional<Message> result = messageRepository.findByClientMessageId(clientMessageId);
-
-        // then
-        assertThat(result).isPresent();
-        assertThat(result.get().getId()).isEqualTo(saved.getId());
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 clientMessageId로 조회하면 빈 Optional을 반환한다.")
-    void 존재하지_않는_clientMessageId로_조회하면_빈_Optional을_반환한다() {
-        // when
-        Optional<Message> result = messageRepository.findByClientMessageId("non-existent-client-message-id");
-
-        // then
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("sender와 room이 달라도 동일한 clientMessageId를 가진 Message는 중복 저장할 수 없다.")
-    void sender와_room이_달라도_동일한_clientMessageId를_가진_Message는_중복_저장할_수_없다() {
-        // given
-        Member senderA = createMember("senderA");
-        Member senderB = createMember("senderB");
-        Space roomA = createSpaceBy("roomA");
-        Space roomB = createSpaceBy("roomB");
-        spaceMemberRepository.save(SpaceMember.of(senderA, roomA));
-        spaceMemberRepository.save(SpaceMember.of(senderB, roomB));
-
-        String clientMessageId = nextClientMessageId();
-        Message first = Message.of("first", senderA, roomA, clientMessageId);
-        Message duplicate = Message.of("second", senderB, roomB, clientMessageId);
-
-        messageRepository.saveAndFlush(first);
-
-        // when & then
-        assertThatThrownBy(() -> messageRepository.saveAndFlush(duplicate))
-                .isInstanceOf(DataIntegrityViolationException.class);
-    }
-
-    @Test
-    @DisplayName("같은 room 소속 messageId는 existsByIdAndSpaceId가 true를 반환한다.")
-    void 같은_room_소속_messageId는_existsByIdAndSpaceId가_true를_반환한다() {
-        // given
-        Member member = createMember("user");
-        Space chatRoom = createSpaceBy("room");
-        Message chat = messageRepository.save(Message.of("message", member, chatRoom, nextClientMessageId()));
-
-        // when
-        boolean exists = messageRepository.existsByIdAndSpaceId(chat.getId(), chatRoom.getId());
-
-        // then
-        assertThat(exists).isTrue();
-    }
-
-    @Test
-    @DisplayName("다른 room 소속 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
-    void 다른_room_소속_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
-        // given
-        Member member = createMember("user");
-        Space targetRoom = createSpaceBy("target");
-        Space otherRoom = createSpaceBy("other");
-        Message otherChat = messageRepository.save(Message.of("other message", member, otherRoom, nextClientMessageId()));
-
-        // when
-        boolean exists = messageRepository.existsByIdAndSpaceId(otherChat.getId(), targetRoom.getId());
-
-        // then
-        assertThat(exists).isFalse();
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 messageId는 existsByIdAndSpaceId가 false를 반환한다.")
-    void 존재하지_않는_messageId는_existsByIdAndSpaceId가_false를_반환한다() {
-        // given
-        Space chatRoom = createSpaceBy("room");
-
-        // when
-        boolean exists = messageRepository.existsByIdAndSpaceId(999_999_999L, chatRoom.getId());
-
-        // then
-        assertThat(exists).isFalse();
     }
 
     private Member createMember(String username) {
