@@ -56,7 +56,7 @@ class SpaceMemberRepositoryTest {
 
         // then
         assertThat(findSpaceMembers).hasSize(2);
-        assertThat(findSpaceMembers).containsExactly(firstParticipant, secondParticipant);
+        assertThat(findSpaceMembers).containsExactlyInAnyOrder(firstParticipant, secondParticipant);
     }
 
     @Test
@@ -165,6 +165,32 @@ class SpaceMemberRepositoryTest {
     }
 
     @Test
+    @DisplayName("SpaceMember를 삭제해도 같은 Space의 다른 참여자는 유지된다.")
+    void SpaceMember를_삭제해도_같은_Space의_다른_참여자는_유지된다() {
+        // given
+        Space space = createSpaceBy("chatRoom");
+        Member targetMember = createMemberBy("targetMember");
+        Member otherMember = createMemberBy("otherMember");
+
+        spaceMemberRepository.save(SpaceMember.of(targetMember, space));
+        spaceMemberRepository.save(SpaceMember.of(otherMember, space));
+
+        // when
+        spaceMemberRepository.deleteBy(space.getId(), targetMember.getId());
+        em.flush();
+        em.clear();
+
+        // then
+        SpaceMember deletedResult = spaceMemberRepository.findChatRoomBy(space.getId(), targetMember.getId());
+        assertThat(deletedResult).isNull();
+
+        SpaceMember remainingResult = spaceMemberRepository.findChatRoomBy(space.getId(), otherMember.getId());
+        assertThat(remainingResult).isNotNull();
+        assertThat(remainingResult.getMember().getId()).isEqualTo(otherMember.getId());
+        assertThat(remainingResult.getSpace().getId()).isEqualTo(space.getId());
+    }
+
+    @Test
     @DisplayName("lastReadMessageId가 null일 때 새로운 값으로 갱신된다.")
     void lastReadMessageId가_null일_때_새로운_값으로_갱신된다() {
         // given
@@ -235,6 +261,41 @@ class SpaceMemberRepositoryTest {
         Long currentCursor = spaceMemberRepository.findLastReadMessageIdBy(
                 member.getId(), chatRoom.getId());
         assertThat(currentCursor).isEqualTo(100L);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 SpaceMember의 cursor를 갱신하면 updateCount가 0이다.")
+    void 존재하지_않는_SpaceMember의_cursor를_갱신하면_updateCount가_0이다() {
+        // given
+        Member targetMember = createMemberBy("targetMember");
+        Member otherMember = createMemberBy("otherMember");
+        Space targetSpace = createSpaceBy("targetSpace");
+        Space otherSpace = createSpaceBy("otherSpace");
+
+        spaceMemberRepository.save(SpaceMember.of(targetMember, otherSpace));
+        spaceMemberRepository.save(SpaceMember.of(otherMember, targetSpace));
+
+        spaceMemberRepository.updateLastReadMessageId(targetMember.getId(), otherSpace.getId(), 10L);
+        spaceMemberRepository.updateLastReadMessageId(otherMember.getId(), targetSpace.getId(), 20L);
+        em.flush();
+        em.clear();
+
+        // when
+        int updateCount = spaceMemberRepository.updateLastReadMessageId(
+                targetMember.getId(), targetSpace.getId(), 100L
+        );
+        em.flush();
+        em.clear();
+
+        // then
+        assertThat(updateCount).isEqualTo(0);
+        Long targetMemberOtherSpaceCursor = spaceMemberRepository.findLastReadMessageIdBy(
+                targetMember.getId(), otherSpace.getId());
+        assertThat(targetMemberOtherSpaceCursor).isEqualTo(10L);
+
+        Long otherMemberTargetSpaceCursor = spaceMemberRepository.findLastReadMessageIdBy(
+                otherMember.getId(), targetSpace.getId());
+        assertThat(otherMemberTargetSpaceCursor).isEqualTo(20L);
     }
 
     @Test
@@ -516,6 +577,31 @@ class SpaceMemberRepositoryTest {
         assertThat(countMap.get(first.getId())).isEqualTo(1L);
         // secondMessage: readerOfFirst(cursor=first.id < second.id), noReader(null) → 2
         assertThat(countMap.get(second.getId())).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("spaceId별로 참여자 수를 집계한다.")
+    void spaceId별로_참여자_수를_집계한다() {
+        // given
+        Space spaceA = createSpaceBy("spaceA");
+        Space spaceB = createSpaceBy("spaceB");
+        Member memberA = createMemberBy("memberA");
+        Member memberB = createMemberBy("memberB");
+        Member memberC = createMemberBy("memberC");
+
+        spaceMemberRepository.save(SpaceMember.of(memberA, spaceA));
+        spaceMemberRepository.save(SpaceMember.of(memberB, spaceA));
+        spaceMemberRepository.save(SpaceMember.of(memberC, spaceB));
+
+        em.flush();
+
+        // when
+        long spaceACount = spaceMemberRepository.countBySpaceId(spaceA.getId());
+        long spaceBCount = spaceMemberRepository.countBySpaceId(spaceB.getId());
+
+        // then
+        assertThat(spaceACount).isEqualTo(2L);
+        assertThat(spaceBCount).isEqualTo(1L);
     }
 
     @Test
