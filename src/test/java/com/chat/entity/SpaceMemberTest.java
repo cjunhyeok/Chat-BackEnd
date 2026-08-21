@@ -5,9 +5,24 @@ import com.chat.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SpaceMemberTest {
+
+    @Test
+    @DisplayName("SpaceMember 생성 시 lastReadMessageId 초기값은 null이다.")
+    void SpaceMember_생성_시_lastReadMessageId_초기값은_null이다() {
+        // given
+        Member member = Member.of("username", "password", "nickname");
+        Space space = Space.of("개발팀");
+
+        // when
+        SpaceMember spaceMember = SpaceMember.of(member, space);
+
+        // then
+        assertThat(spaceMember.getLastReadMessageId()).isNull();
+    }
 
     @Test
     @DisplayName("Member가 null이면 SpaceMember 생성 시 MEMBER_NOT_FOUND 예외가 발생한다.")

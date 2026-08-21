@@ -165,22 +165,6 @@ class SpaceMemberRepositoryTest {
     }
 
     @Test
-    @DisplayName("SpaceMember 생성 시 lastReadMessageId 초기값은 null이다.")
-    void SpaceMember_생성_시_lastReadMessageId_초기값은_null이다() {
-        // given
-        Member member = createMemberBy("member");
-        Space chatRoom = createSpaceBy("room");
-
-        // when
-        SpaceMember saved = spaceMemberRepository.save(
-                SpaceMember.of(member, chatRoom)
-        );
-
-        // then
-        assertThat(saved.getLastReadMessageId()).isNull();
-    }
-
-    @Test
     @DisplayName("lastReadMessageId가 null일 때 새로운 값으로 갱신된다.")
     void lastReadMessageId가_null일_때_새로운_값으로_갱신된다() {
         // given
