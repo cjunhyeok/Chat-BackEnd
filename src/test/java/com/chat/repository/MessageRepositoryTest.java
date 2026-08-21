@@ -4,6 +4,8 @@ import com.chat.entity.Message;
 import com.chat.entity.Space;
 import com.chat.entity.Member;
 import com.chat.entity.SpaceMember;
+import jakarta.persistence.EntityManager;
+import org.hibernate.Session;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,36 +33,8 @@ class MessageRepositoryTest {
     private MemberRepository memberRepository;
     @Autowired
     private SpaceMemberRepository spaceMemberRepository;
-
-    @Test
-    @DisplayName("spaceId로 마지막 메시지를 내림차순으로 조회한다.")
-    void spaceId로_마지막_메시지를_내림차순으로_조회한다() {
-        // given
-        String firstUser = "first";
-        Member firstMember = createMember(firstUser);
-        String secondUser = "second";
-        Member secondMember = createMember(secondUser);
-
-        String title = "title";
-        Space chatRoom = createSpaceBy(title);
-
-        String firstMessage = "first";
-        Message firstChat = Message.of(firstMessage, firstMember, chatRoom, nextClientMessageId());
-        messageRepository.save(firstChat);
-
-        String secondMessage = "second";
-        Message secondChat = Message.of(secondMessage, secondMember, chatRoom, nextClientMessageId());
-        messageRepository.save(secondChat);
-
-        Pageable limitOne = createLimitOne();
-
-        // when
-        List<Message> lastChatArray = messageRepository.findLastMessageBy(chatRoom.getId(), limitOne);
-
-        // then
-        assertThat(lastChatArray).hasSize(1);
-        assertThat(lastChatArray.get(0)).isEqualTo(secondChat);
-    }
+    @Autowired
+    private EntityManager em;
 
     @Test
     @DisplayName("여러 spaceId로 각 방의 마지막 메시지를 일괄 조회한다.")
@@ -165,6 +139,35 @@ class MessageRepositoryTest {
     }
 
     @Test
+    @DisplayName("findLatestMessages는 Member 정보를 단일 쿼리로 조회한다.")
+    void findLatestMessages는_Member_정보를_단일_쿼리로_조회한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+
+        messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
+
+        em.flush();
+        em.clear();
+
+        Session session = em.unwrap(Session.class);
+        session.getSessionFactory().getStatistics().setStatisticsEnabled(true);
+        session.getSessionFactory().getStatistics().clear();
+
+        // when
+        List<Message> result = messageRepository.findLatestMessages(chatRoom.getId(), PageRequest.of(0, 10));
+        for (Message message : result) {
+            message.getMember().getNickname();
+        }
+        long queryCount = session.getSessionFactory().getStatistics().getPrepareStatementCount();
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(queryCount).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("cursor 이전 메시지를 id 내림차순으로 조회한다.")
     void cursor_이전_메시지를_id_내림차순으로_조회한다() {
         // given
@@ -225,6 +228,43 @@ class MessageRepositoryTest {
         // then
         assertThat(result).hasSize(1);
         assertThat(result.get(0)).isEqualTo(targetFirst);
+    }
+
+    @Test
+    @DisplayName("findMessagesBeforeId는 Member 정보를 단일 쿼리로 조회한다.")
+    void findMessagesBeforeId는_Member_정보를_단일_쿼리로_조회한다() {
+        // given
+        Member member = createMember("user");
+        Space chatRoom = createSpaceBy("room");
+
+        Message first = messageRepository.save(Message.of("first", member, chatRoom, nextClientMessageId()));
+        Message second = messageRepository.save(Message.of("second", member, chatRoom, nextClientMessageId()));
+        Message third = messageRepository.save(Message.of("third", member, chatRoom, nextClientMessageId()));
+        Long beforeChatId = third.getId();
+
+        em.flush();
+        em.clear();
+
+        Session session = em.unwrap(Session.class);
+        session.getSessionFactory().getStatistics().setStatisticsEnabled(true);
+        session.getSessionFactory().getStatistics().clear();
+
+        // when
+        List<Message> messages = messageRepository.findMessagesBeforeId(
+                chatRoom.getId(),
+                beforeChatId,
+                PageRequest.of(0, 10)
+        );
+        for (Message message : messages) {
+            message.getMember().getNickname();
+        }
+        long queryCount = session.getSessionFactory().getStatistics().getPrepareStatementCount();
+
+        // then
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).getId()).isEqualTo(second.getId());
+        assertThat(messages.get(1).getId()).isEqualTo(first.getId());
+        assertThat(queryCount).isEqualTo(1L);
     }
 
     @Test
@@ -381,9 +421,5 @@ class MessageRepositoryTest {
     private Space createSpaceBy(String title) {
         Space chatRoom = Space.of(title);
         return spaceRepository.save(chatRoom);
-    }
-
-    private Pageable createLimitOne() {
-        return PageRequest.of(0, 1);
     }
 }
