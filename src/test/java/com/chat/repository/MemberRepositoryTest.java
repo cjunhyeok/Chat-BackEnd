@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -96,6 +97,44 @@ class MemberRepositoryTest {
         assertThat(memberIds)
                 .hasSize(3)
                 .containsExactlyInAnyOrder(firstMember.getId(), secondMember.getId(), thirdMember.getId());
+    }
+
+    @Test
+    @DisplayName("findMemberIdsIn은 다른 Space의 memberId를 포함하지 않는다.")
+    void findMemberIdsIn은_다른_Space의_memberId를_포함하지_않는다() {
+        // given
+        Space spaceA = spaceRepository.save(Space.of("spaceA"));
+        Space spaceB = spaceRepository.save(Space.of("spaceB"));
+
+        Member memberA = createMemberBy("memberA");
+        Member memberB = createMemberBy("memberB");
+        Member memberC = createMemberBy("memberC");
+
+        spaceMemberRepository.save(SpaceMember.of(memberA, spaceA));
+        spaceMemberRepository.save(SpaceMember.of(memberB, spaceA));
+        spaceMemberRepository.save(SpaceMember.of(memberC, spaceB));
+
+        // when
+        List<Long> memberIds = memberRepository.findMemberIdsIn(spaceA.getId());
+
+        // then
+        assertThat(memberIds)
+                .containsExactlyInAnyOrder(memberA.getId(), memberB.getId());
+    }
+
+    @Test
+    @DisplayName("동일한 username을 가진 Member는 중복 저장할 수 없다.")
+    void 동일한_username을_가진_Member는_중복_저장할_수_없다() {
+        // given
+        String duplicatedUsername = "duplicatedUsername";
+        Member firstMember = Member.of(duplicatedUsername, "firstPassword", "firstNickname");
+        Member duplicateMember = Member.of(duplicatedUsername, "secondPassword", "secondNickname");
+
+        memberRepository.saveAndFlush(firstMember);
+
+        // when & then
+        assertThatThrownBy(() -> memberRepository.saveAndFlush(duplicateMember))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private Member createMemberBy(String username) {
