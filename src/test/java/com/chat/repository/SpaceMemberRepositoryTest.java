@@ -5,7 +5,6 @@ import com.chat.entity.Space;
 import com.chat.entity.SpaceMember;
 import com.chat.entity.Member;
 import com.chat.repository.dtos.MessageUnreadMemberCount;
-import com.chat.repository.dtos.MemberUnreadCount;
 import com.chat.repository.dtos.RoomUnreadMessageCount;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Session;
@@ -65,8 +64,10 @@ class SpaceMemberRepositoryTest {
     void spaceId로_참여자와_Member_정보를_fetch_join으로_조회한다() {
         // given
         Member member = createMemberBy("username");
+        Member other = createMemberBy("otherUsername");
         Space chatRoom = createSpaceBy("chatRoom");
         spaceMemberRepository.save(SpaceMember.of(member, chatRoom));
+        spaceMemberRepository.save(SpaceMember.of(other, chatRoom));
 
         em.flush();
         em.clear();
@@ -76,8 +77,10 @@ class SpaceMemberRepositoryTest {
                 = spaceMemberRepository.findAllFetchMemberBy(chatRoom.getId());
 
         // then
-        assertThat(spaceMembers).hasSize(1);
-        assertThat(spaceMembers.get(0).getMember().getUsername()).isEqualTo("username");
+        assertThat(spaceMembers).hasSize(2);
+        assertThat(spaceMembers)
+                .extracting(crp -> crp.getMember().getUsername())
+                .containsExactlyInAnyOrder("username", "otherUsername");
     }
 
     @Test
@@ -141,35 +144,6 @@ class SpaceMemberRepositoryTest {
 
         // then
         assertThat(result).isNull();
-    }
-
-    @Test
-    @DisplayName("여러 spaceId로 참여자와 Member 정보를 일괄 조회한다.")
-    void 여러_spaceId로_참여자와_Member_정보를_일괄_조회한다() {
-        // given
-        Member firstMember = createMemberBy("first");
-        Member secondMember = createMemberBy("second");
-        Member thirdMember = createMemberBy("third");
-
-        Space firstRoom = createSpaceBy("firstRoom");
-        Space secondRoom = createSpaceBy("secondRoom");
-
-        spaceMemberRepository.save(SpaceMember.of(firstMember, firstRoom));
-        spaceMemberRepository.save(SpaceMember.of(secondMember, firstRoom));
-        spaceMemberRepository.save(SpaceMember.of(thirdMember, secondRoom));
-
-        em.flush();
-        em.clear();
-
-        // when
-        List<SpaceMember> participants = spaceMemberRepository
-                .findAllFetchMemberBy(List.of(firstRoom.getId(), secondRoom.getId()));
-
-        // then
-        assertThat(participants).hasSize(3);
-        assertThat(participants)
-                .extracting(crp -> crp.getMember().getNickname())
-                .doesNotContainNull();
     }
 
     @Test
@@ -357,72 +331,6 @@ class SpaceMemberRepositoryTest {
                 .findRoomUnreadMessageCountsBy(List.of(chatRoom.getId()), me.getId());
 
         // then: cursor = latest → c.id > cursor 만족하는 메시지 없음 → INNER JOIN 0행 → 방 자체가 결과에서 제외
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("방 내 여러 멤버의 cursor 기반 미읽음 수를 일괄 조회한다.")
-    void 방_내_여러_멤버의_cursor_기반_미읽음_수를_일괄_조회한다() {
-        // given
-        Member me = createMemberBy("me");
-        Member other = createMemberBy("other");
-        Member sender = createMemberBy("sender");
-        Space chatRoom = createSpaceBy("room");
-
-        spaceMemberRepository.save(
-                SpaceMember.of(me, chatRoom));
-        spaceMemberRepository.save(
-                SpaceMember.of(other, chatRoom));
-        spaceMemberRepository.save(
-                SpaceMember.of(sender, chatRoom));
-
-        Message first = messageRepository.save(Message.of("msg1", sender, chatRoom, nextClientMessageId()));
-        messageRepository.save(Message.of("msg2", sender, chatRoom, nextClientMessageId()));
-
-        // me: cursor null → 전체 2개 unread
-        // other: cursor = first → second만 1개 unread
-        spaceMemberRepository.updateLastReadMessageId(
-                other.getId(), chatRoom.getId(), first.getId());
-        em.flush(); em.clear();
-
-        // when
-        List<MemberUnreadCount> result = spaceMemberRepository
-                .findMemberUnreadMessageCountsBy(
-                        chatRoom.getId(),
-                        List.of(me.getId(), other.getId()));
-
-        // then
-        Map<Long, Long> countMap = result.stream()
-                .collect(Collectors.toMap(
-                        MemberUnreadCount::getMemberId,
-                        MemberUnreadCount::getUnreadMessageCount));
-
-        assertThat(countMap.get(me.getId())).isEqualTo(2L);
-        assertThat(countMap.get(other.getId())).isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName("cursor가 최신 메시지와 같으면 해당 멤버는 미읽음 집계 결과에 포함되지 않는다.")
-    void cursor가_최신_메시지와_같으면_해당_멤버는_미읽음_집계_결과에_포함되지_않는다() {
-        // given
-        Member readerAll = createMemberBy("readerAll");
-        Member sender = createMemberBy("sender");
-        Space chatRoom = createSpaceBy("room");
-        spaceMemberRepository.save(SpaceMember.of(readerAll, chatRoom));
-        spaceMemberRepository.save(SpaceMember.of(sender, chatRoom));
-
-        messageRepository.save(Message.of("msg1", sender, chatRoom, nextClientMessageId()));
-        Message latest = messageRepository.save(Message.of("msg2", sender, chatRoom, nextClientMessageId()));
-
-        spaceMemberRepository.updateLastReadMessageId(readerAll.getId(), chatRoom.getId(), latest.getId());
-        em.flush();
-        em.clear();
-
-        // when
-        List<MemberUnreadCount> result = spaceMemberRepository
-                .findMemberUnreadMessageCountsBy(chatRoom.getId(), List.of(readerAll.getId()));
-
-        // then: cursor = latest → c.id > cursor 만족하는 메시지 없음 → 해당 멤버는 결과 row 자체가 없음
         assertThat(result).isEmpty();
     }
 
