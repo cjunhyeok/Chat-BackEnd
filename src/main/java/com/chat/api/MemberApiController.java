@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.SessionAttribute;
 
 import java.util.List;
 
@@ -62,7 +63,8 @@ public class MemberApiController {
     }
 
     @GetMapping("/api/members")
-    public Result<List<GetMembersResponse>> getMembers() {
+    public Result<List<GetMembersResponse>> getMembers(
+            @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) {
 
         List<GetMembersResponse> response = memberService.findMembers();
 
@@ -76,10 +78,9 @@ public class MemberApiController {
     @PatchMapping("/api/member/nickname")
     public Result<Void> changeNickname(
             @RequestBody ChangeNicknameRequest request,
-            HttpSession session) {
+            @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) {
 
-        Long memberId = (Long) session.getAttribute(SessionConst.SESSION_ID);
-        memberService.changeNickname(memberId, request.getNickname());
+        memberService.changeNickname(loginMemberId, request.getNickname());
 
         return Result.<Void>builder()
                 .status(HttpStatus.OK)
@@ -90,10 +91,9 @@ public class MemberApiController {
     @PatchMapping("/api/member/password")
     public Result<Void> changePassword(
             @RequestBody ChangePasswordRequest request,
-            HttpSession session) {
+            @SessionAttribute(name = SessionConst.SESSION_ID) Long loginMemberId) {
 
-        Long memberId = (Long) session.getAttribute(SessionConst.SESSION_ID);
-        memberService.changePassword(memberId, request.getCurrentPassword(), request.getNewPassword());
+        memberService.changePassword(loginMemberId, request.getCurrentPassword(), request.getNewPassword());
 
         return Result.<Void>builder()
                 .status(HttpStatus.OK)

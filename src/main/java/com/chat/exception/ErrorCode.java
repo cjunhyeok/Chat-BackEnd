@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum ErrorCode {
 
+    MISSING_REQUEST_PARAMETER(HttpStatus.BAD_REQUEST, "필수 요청 파라미터가 누락되었습니다."),
+
     EMPTY_USERNAME(HttpStatus.BAD_REQUEST, "아이디가 비어있습니다."),
     EMPTY_PASSWORD(HttpStatus.BAD_REQUEST, "비밀번호가 비어있습니다."),
     EMPTY_NICKNAME(HttpStatus.BAD_REQUEST, "닉네임이 비어있습니다."),
