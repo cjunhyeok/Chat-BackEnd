@@ -1,8 +1,5 @@
-package com.chat.controller;
+package com.chat.api;
 
-import com.chat.api.MemberApiController;
-import com.chat.api.MessageApiController;
-import com.chat.api.SpaceApiController;
 import com.chat.exception.ErrorCode;
 import com.chat.service.MemberService;
 import com.chat.service.MessageService;
