@@ -4,13 +4,11 @@ import com.chat.exception.ErrorCode;
 import com.chat.service.MemberService;
 import com.chat.service.MessageService;
 import com.chat.service.SpaceService;
-import com.chat.utils.consts.SessionConst;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -50,23 +48,6 @@ class SessionAuthenticationMvcTest {
                 .andExpect(jsonPath("$.message").value(ErrorCode.USER_NOT_AUTHENTICATED.getErrorMessage()));
 
         verifyNoInteractions(spaceService);
-    }
-
-    @Test
-    @DisplayName("필수 chatRoomId가 누락되면 400을 반환한다.")
-    void 필수_chatRoomId가_누락되면_400을_반환한다() throws Exception {
-        // given
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(SessionConst.SESSION_ID, 1L);
-
-        // when & then: chatRoomId 파라미터 없이 요청
-        mockMvc.perform(get("/api/chats")
-                        .session(session))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(ErrorCode.MISSING_REQUEST_PARAMETER.getStatus().name()))
-                .andExpect(jsonPath("$.message").value(ErrorCode.MISSING_REQUEST_PARAMETER.getErrorMessage()));
-
-        verifyNoInteractions(messageService);
     }
 
     @Test
@@ -131,5 +112,21 @@ class SessionAuthenticationMvcTest {
                 .andExpect(jsonPath("$.message").value(ErrorCode.USER_NOT_AUTHENTICATED.getErrorMessage()));
 
         verify(spaceService, never()).joinSpaceByInviteCode(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("로그인 세션이 없으면 메시지 이력 조회는 401을 반환한다.")
+    void 로그인_세션이_없으면_메시지_이력_조회는_401을_반환한다() throws Exception {
+        // given
+        Long chatRoomId = 10L;
+
+        // when & then: chatRoomId는 제공하되 세션은 첨부하지 않음
+        mockMvc.perform(get("/api/chats")
+                        .param("chatRoomId", String.valueOf(chatRoomId)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(ErrorCode.USER_NOT_AUTHENTICATED.getStatus().name()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.USER_NOT_AUTHENTICATED.getErrorMessage()));
+
+        verifyNoInteractions(messageService);
     }
 }
