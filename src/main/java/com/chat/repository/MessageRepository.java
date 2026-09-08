@@ -11,11 +11,6 @@ import java.util.Optional;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
-    @Query("SELECT c" +
-            " FROM Message c" +
-            " WHERE c.space.id = :chatRoomId ORDER BY c.id DESC")
-    List<Message> findLastMessageBy(@Param("chatRoomId") Long chatRoomId, Pageable pageable);
-
     @Query("SELECT MAX(c.id)" +
             " FROM Message c" +
             " WHERE c.space.id = :chatRoomId")

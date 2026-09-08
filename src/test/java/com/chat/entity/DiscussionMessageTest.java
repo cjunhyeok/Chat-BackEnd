@@ -5,6 +5,7 @@ import com.chat.exception.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DiscussionMessageTest {
@@ -66,7 +67,7 @@ class DiscussionMessageTest {
 
     private Discussion createDiscussion(Member member) {
         Space space = Space.of("개발팀");
-        Message rootMessage = Message.of("안녕하세요", member, space);
+        Message rootMessage = Message.of("안녕하세요", member, space, nextClientMessageId());
         return Discussion.of(rootMessage);
     }
 }

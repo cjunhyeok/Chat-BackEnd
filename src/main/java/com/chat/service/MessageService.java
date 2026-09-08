@@ -46,29 +46,24 @@ public class MessageService {
     }
 
     @Transactional
-    public Long saveMessage(Long senderId, Long chatRoomId, String message) {
-        return saveMessage(senderId, chatRoomId, message, null);
-    }
+    public Message saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
+        validateClientMessageId(clientMessageId);
 
-    @Transactional
-    public Long saveMessage(Long senderId, Long chatRoomId, String message, String clientMessageId) {
-        return saveMessageEntity(senderId, chatRoomId, message, clientMessageId).getId();
-    }
+        Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
+        Optional<Message> existing;
+        try {
+            existing = messageRepository.findByClientMessageId(clientMessageId);
+        } finally {
+            idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
+        }
+        if (existing.isPresent()) {
+            Message existingMessage = existing.get();
 
-    @Transactional
-    public Message saveMessageEntity(Long senderId, Long chatRoomId, String message, String clientMessageId) {
-
-        if (clientMessageId != null) {
-            Timer.Sample idempotencyCheckSample = Timer.start(meterRegistry);
-            Optional<Message> existing;
-            try {
-                existing = messageRepository.findByClientMessageId(clientMessageId);
-            } finally {
-                idempotencyCheckSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_IDEMPOTENCY_CHECK_DURATION));
+            if (!isSameSendRequest(existingMessage, senderId, chatRoomId, message)) {
+                throw new CustomException(ErrorCode.CLIENT_MESSAGE_ID_CONFLICT);
             }
-            if (existing.isPresent()) {
-                return existing.get();
-            }
+
+            return existingMessage;
         }
 
         Member findSender = memberRepository.findById(senderId).orElseThrow(
@@ -84,13 +79,41 @@ public class MessageService {
         return savedChat;
     }
 
+    private void validateClientMessageId(String clientMessageId) {
+        if (clientMessageId == null || clientMessageId.isBlank()) {
+            throw new CustomException(ErrorCode.INVALID_CLIENT_MESSAGE_ID);
+        }
+    }
+
+    private boolean isSameSendRequest(Message existingMessage, Long senderId, Long chatRoomId, String message) {
+        return Objects.equals(existingMessage.getMember().getId(), senderId)
+                && Objects.equals(existingMessage.getSpace().getId(), chatRoomId)
+                && Objects.equals(existingMessage.getContent(), message);
+    }
+
     private void updateSenderCursorOnSend(Long senderId, Long chatRoomId, Message chat) {
         Timer.Sample cursorUpdateSample = Timer.start(meterRegistry);
+        Long previousLastReadMessageId;
+        int updateCount;
         try {
-            spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
+            previousLastReadMessageId =
+                    spaceMemberRepository.findLastReadMessageIdBy(senderId, chatRoomId);
+            updateCount =
+                    spaceMemberRepository.updateLastReadMessageId(senderId, chatRoomId, chat.getId());
         } finally {
             cursorUpdateSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_CURSOR_UPDATE_DURATION));
         }
+
+        if (updateCount == 0) {
+            return;
+        }
+
+        publisher.publishEvent(new PublishReadEvent(
+                senderId,
+                chatRoomId,
+                previousLastReadMessageId,
+                chat.getId()
+        ));
     }
 
     @Transactional
@@ -99,6 +122,11 @@ public class MessageService {
         Member findMember = memberRepository.findById(memberId).orElseThrow(
                 () -> new CustomException(ErrorCode.MEMBER_NOT_FOUND)
         );
+
+        SpaceMember spaceMember = spaceMemberRepository.findChatRoomBy(chatRoomId, findMember.getId());
+        if (spaceMember == null) {
+            throw new CustomException(ErrorCode.SPACE_ACCESS_DENIED);
+        }
 
         return createMessageHistoryResponse(chatRoomId, findMember.getId(), beforeChatId);
     }

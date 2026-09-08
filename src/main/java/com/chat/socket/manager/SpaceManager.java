@@ -34,6 +34,11 @@ public class SpaceManager {
                 .register(meterRegistry);
     }
 
+    public void registerSession(WebSocketSession session) {
+        Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
+        sessionStates.put(session.getId(), new SessionState(memberId));
+    }
+
     public void addSessionToSpace(WebSocketSession session, Long chatRoomId) {
 
         IdValidator.requireChatRoomId(chatRoomId);
@@ -66,26 +71,6 @@ public class SpaceManager {
         }
     }
 
-    public boolean isInSpace(Long chatRoomId, Long memberId) {
-        return getWebSocketSessionBy(chatRoomId).stream()
-                .anyMatch(s -> memberId.equals(s.getAttributes().get(SessionConst.SESSION_ID)));
-    }
-
-    public Set<WebSocketSession> getWebSocketSessionBy(Long chatRoomId) {
-        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
-        if (sessions == null) {
-            return Collections.emptySet();
-        }
-        return sessions;
-    }
-
-    public void removeSessionFromSpace(WebSocketSession session) {
-        Long roomId = sessionToRoomMap.get(session.getId());
-        if (roomId != null) {
-            removeSpaceSession(roomId, session);
-        }
-    }
-
     public boolean removeSpaceSession(Long chatRoomId, WebSocketSession closingSession) {
         Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
         if (sessions == null) {
@@ -106,9 +91,11 @@ public class SpaceManager {
         return !memberStillInRoom;
     }
 
-    public void registerSession(WebSocketSession session) {
-        Long memberId = (Long) session.getAttributes().get(SessionConst.SESSION_ID);
-        sessionStates.put(session.getId(), new SessionState(memberId));
+    public void removeSessionFromSpace(WebSocketSession session) {
+        Long roomId = sessionToRoomMap.get(session.getId());
+        if (roomId != null) {
+            removeSpaceSession(roomId, session);
+        }
     }
 
     public void activateSpace(String sessionId, Long chatRoomId) {
@@ -128,12 +115,6 @@ public class SpaceManager {
         state.activate(chatRoomId);
     }
 
-    public boolean isSpaceActive(Long memberId, Long chatRoomId) {
-        return sessionStates.values().stream()
-                .anyMatch(state -> memberId.equals(state.getMemberId())
-                        && chatRoomId.equals(state.getActiveRoomId()));
-    }
-
     public void deactivateSpace(String sessionId, Long chatRoomId) {
         SessionState state = sessionStates.get(sessionId);
         if (state == null) {
@@ -142,8 +123,27 @@ public class SpaceManager {
         state.deactivatedIfRoom(chatRoomId);
     }
 
+    public boolean isSpaceActive(Long memberId, Long chatRoomId) {
+        return sessionStates.values().stream()
+                .anyMatch(state -> memberId.equals(state.getMemberId())
+                        && chatRoomId.equals(state.getActiveRoomId()));
+    }
+
     public void removeSessionState(WebSocketSession session) {
         sessionStates.remove(session.getId());
+    }
+
+    public Set<WebSocketSession> getWebSocketSessionBy(Long chatRoomId) {
+        Set<WebSocketSession> sessions = chatRooms.get(chatRoomId);
+        if (sessions == null) {
+            return Collections.emptySet();
+        }
+        return sessions;
+    }
+
+    public boolean isInSpace(Long chatRoomId, Long memberId) {
+        return getWebSocketSessionBy(chatRoomId).stream()
+                .anyMatch(s -> memberId.equals(s.getAttributes().get(SessionConst.SESSION_ID)));
     }
 
     @VisibleForTesting

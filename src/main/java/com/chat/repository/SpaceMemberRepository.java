@@ -2,7 +2,6 @@ package com.chat.repository;
 
 import com.chat.entity.SpaceMember;
 import com.chat.repository.dtos.MessageUnreadMemberCount;
-import com.chat.repository.dtos.MemberUnreadCount;
 import com.chat.repository.dtos.RoomUnreadMessageCount;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -25,12 +24,6 @@ public interface SpaceMemberRepository extends JpaRepository<SpaceMember, Long> 
             " JOIN FETCH crp.member" +
             " WHERE crp.space.id = :chatRoomId")
     List<SpaceMember> findAllFetchMemberBy(@Param("chatRoomId") Long chatRoomId);
-
-    @Query(value = "SELECT crp" +
-            " FROM SpaceMember crp" +
-            " JOIN FETCH crp.member" +
-            " WHERE crp.space.id IN :chatRoomIds")
-    List<SpaceMember> findAllFetchMemberBy(@Param("chatRoomIds") List<Long> chatRoomIds);
 
     @Query("SELECT crp" +
             " FROM SpaceMember crp" +
@@ -63,16 +56,6 @@ public interface SpaceMemberRepository extends JpaRepository<SpaceMember, Long> 
             " GROUP BY crp.space.id")
     List<RoomUnreadMessageCount> findRoomUnreadMessageCountsBy(@Param("chatRoomIds") List<Long> chatRoomIds,
                                                                @Param("memberId") Long memberId);
-
-    @Query("SELECT new com.chat.repository.dtos.MemberUnreadCount(crp.member.id, COUNT(c))" +
-            " FROM SpaceMember crp" +
-            " JOIN Message c ON c.space.id = crp.space.id" +
-            " WHERE crp.space.id = :chatRoomId" +
-            " AND crp.member.id IN :memberIds" +
-            " AND (crp.lastReadMessageId IS NULL OR c.id > crp.lastReadMessageId)" +
-            " GROUP BY crp.member.id")
-    List<MemberUnreadCount> findMemberUnreadMessageCountsBy(@Param("chatRoomId") Long chatRoomId,
-                                                             @Param("memberIds") List<Long> memberIds);
 
     @Query("SELECT crp.lastReadMessageId" +
             " FROM SpaceMember crp" +

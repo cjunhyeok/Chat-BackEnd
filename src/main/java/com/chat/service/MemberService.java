@@ -9,8 +9,6 @@ import com.chat.exception.ErrorCode;
 import com.chat.repository.MemberRepository;
 import com.chat.service.dtos.LoginResponse;
 import com.chat.service.utils.PasswordEncoder;
-import com.chat.socket.manager.SpaceManager;
-import com.chat.socket.manager.WebsocketSessionManager;
 import com.chat.utils.consts.LoginMetricNames;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -19,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,8 +29,6 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
-    private final WebsocketSessionManager websocketSessionManager;
-    private final SpaceManager spaceManager;
     private final MeterRegistry meterRegistry;
 
     @Transactional
@@ -43,6 +38,8 @@ public class MemberService {
         if (isMemberExist) {
             throw new CustomException(ErrorCode.DUPLICATED_USERNAME);
         }
+
+        validateRawPassword(request.getPassword());
 
         Member member = Member.of(
                 request.getUsername(),
@@ -63,6 +60,8 @@ public class MemberService {
         } finally {
             dbQuerySample.stop(meterRegistry.timer(LoginMetricNames.LOGIN_DB_QUERY_DURATION));
         }
+
+        validateRawPassword(request.getPassword());
 
         boolean isMatch = passwordEncoder.match(request.getPassword(), findMember.getPassword());
         if (!isMatch) {
@@ -106,18 +105,21 @@ public class MemberService {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new CustomException(ErrorCode.MEMBER_NOT_FOUND));
 
+        validateRawPassword(currentPassword);
+
         boolean isMatch = passwordEncoder.match(currentPassword, member.getPassword());
         if (!isMatch) {
             throw new CustomException(ErrorCode.PASSWORD_NOT_MATCH);
         }
 
+        validateRawPassword(newPassword);
+
         member.changePassword(passwordEncoder.encode(newPassword));
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public void removeSession(Long memberId, WebSocketSession closingSession) {
-        spaceManager.removeSessionFromSpace(closingSession);
-        websocketSessionManager.removeSession(memberId, closingSession);
-        spaceManager.removeSessionState(closingSession);
+    private void validateRawPassword(String password) {
+        if (password == null || password.isBlank()) {
+            throw new CustomException(ErrorCode.EMPTY_PASSWORD);
+        }
     }
 }

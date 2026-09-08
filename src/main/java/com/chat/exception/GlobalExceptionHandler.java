@@ -4,6 +4,8 @@ import com.chat.api.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -35,8 +37,40 @@ public class GlobalExceptionHandler {
                         .build());
     }
 
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Result<?>> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
+
+        ErrorCode errorCode = ErrorCode.MISSING_REQUEST_PARAMETER;
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(Result.builder()
+                        .status(errorCode.getStatus())
+                        .message(errorCode.getErrorMessage())
+                        .build());
+    }
+
+    @ExceptionHandler(ServletRequestBindingException.class)
+    public ResponseEntity<Result<?>> handleServletRequestBindingException(ServletRequestBindingException e) {
+
+        if (e.getClass() != ServletRequestBindingException.class) {
+            return handleUnexpectedException(e);
+        }
+
+        ErrorCode errorCode = ErrorCode.USER_NOT_AUTHENTICATED;
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(Result.builder()
+                        .status(errorCode.getStatus())
+                        .message(errorCode.getErrorMessage())
+                        .build());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<?>> handleException(Exception e) {
+        return handleUnexpectedException(e);
+    }
+
+    private ResponseEntity<Result<?>> handleUnexpectedException(Exception e) {
         log.error("HTTP 처리 실패: 예상치 못한 예외", e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)

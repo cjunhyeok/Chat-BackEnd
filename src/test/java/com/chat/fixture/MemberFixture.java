@@ -3,8 +3,6 @@ package com.chat.fixture;
 import com.chat.api.request.member.LoginRequest;
 import com.chat.entity.Member;
 import com.chat.repository.MemberRepository;
-import com.chat.service.MemberService;
-import com.chat.service.dtos.LoginResponse;
 import com.chat.service.utils.PasswordEncoder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -21,8 +19,6 @@ public class MemberFixture {
     private static final String NICKNAME = "nickname";
 
     @Autowired
-    private MemberService memberService;
-    @Autowired
     private MemberRepository memberRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -35,16 +31,6 @@ public class MemberFixture {
                 NICKNAME
         );
         return memberRepository.save(member);
-    }
-
-    public LoginResponse loginBy(String username, String requestUrl) {
-        LoginRequest request = LoginRequest
-                .builder()
-                .username(username)
-                .password(PASSWORD)
-                .build();
-
-        return memberService.login(request);
     }
 
     public String loginRequestBy(String username, int port) {

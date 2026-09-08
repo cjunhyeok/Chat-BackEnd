@@ -44,7 +44,7 @@ public class MessageBroadcastListener {
 
     @Async("broadcastExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishMessageToSessions(PublishMessageEvent event) {
+    public void onMessagePublished(PublishMessageEvent event) {
         long afterCommitDelayNanos = System.nanoTime() - event.getPublishedAtNanos();
         meterRegistry.timer(MessageMetricNames.MESSAGE_AFTER_COMMIT_DELAY)
                 .record(Duration.ofNanos(afterCommitDelayNanos));
@@ -56,12 +56,35 @@ public class MessageBroadcastListener {
             chatBroadcastSample.stop(meterRegistry.timer(MessageMetricNames.MESSAGE_BROADCAST_CHAT_DURATION));
         }
 
-        sendRoomMessageSummaryUpdated(event.getRoomMessageSummaryUpdated(), event.getRecipientMemberIds());
+        RoomMessageSummaryUpdated roomMessageSummaryUpdated = event.getRoomMessageSummaryUpdated();
+        if (roomMessageSummaryUpdated != null) {
+            sendToRecipientMemberSessions(event.getRecipientMemberIds(), roomMessageSummaryUpdated, roomMessageSummaryUpdated.getChatRoomId());
+        }
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishReadEventToSessions(PublishReadEvent event) {
+    public void onReadEventPublished(PublishReadEvent event) {
         readEventBatchAccumulator.enqueue(event);
+    }
+
+    @Async("broadcastExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onSpaceTitleChanged(PublishSpaceTitleChangedEvent event) {
+        SpaceTitleChanged payload = event.getSpaceTitleChanged();
+        sendToRecipientMemberSessions(event.getRecipientMemberIds(), payload, payload.getChatRoomId());
+    }
+
+    @Async("broadcastExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onSpaceInvited(PublishSpaceInvitedEvent event) {
+        SpaceInvited payload = event.getSpaceInvited();
+        sendToRecipientMemberSessions(event.getRecipientMemberIds(), payload, event.getChatRoomId());
+    }
+
+    @Async("broadcastExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onDiscussionMessagePublished(PublishDiscussionMessageEvent event) {
+        sendToSpaceSessions(event.getSpaceId(), event.getPayload());
     }
 
     @Async("broadcastExecutor")
@@ -69,45 +92,17 @@ public class MessageBroadcastListener {
         sendToSpaceSessions(batch.getChatRoomId(), batch);
     }
 
-    @Async("broadcastExecutor")
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishSpaceTitleChangedToSessions(PublishSpaceTitleChangedEvent event) {
-        SpaceTitleChanged payload = event.getSpaceTitleChanged();
-        for (Long memberId : event.getRecipientMemberIds()) {
-            send(websocketSessionManager.getSessionBy(memberId), payload, payload.getChatRoomId());
-        }
-    }
-
-    @Async("broadcastExecutor")
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishSpaceInvitedToSessions(PublishSpaceInvitedEvent event) {
-        SpaceInvited payload = event.getSpaceInvited();
-        for (Long memberId : event.getRecipientMemberIds()) {
-            send(websocketSessionManager.getSessionBy(memberId), payload, event.getChatRoomId());
-        }
-    }
-
-    @Async("broadcastExecutor")
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void publishDiscussionMessageToSessions(PublishDiscussionMessageEvent event) {
-        sendToSpaceSessions(event.getSpaceId(), event.getPayload());
-    }
-
     private void sendToSpaceSessions(Long chatRoomId, Object payload) {
-        send(spaceManager.getWebSocketSessionBy(chatRoomId), payload, chatRoomId);
+        sendToSessions(spaceManager.getWebSocketSessionBy(chatRoomId), payload, chatRoomId);
     }
 
-    private void sendRoomMessageSummaryUpdated(RoomMessageSummaryUpdated roomMessageSummaryUpdated, Set<Long> targetMemberIds) {
-        if (roomMessageSummaryUpdated == null) {
-            return;
-        }
-
-        for (Long memberId : targetMemberIds) {
-            send(websocketSessionManager.getSessionBy(memberId), roomMessageSummaryUpdated, roomMessageSummaryUpdated.getChatRoomId());
+    private void sendToRecipientMemberSessions(Set<Long> recipientMemberIds, Object payload, Long chatRoomId) {
+        for (Long memberId : recipientMemberIds) {
+            sendToSessions(websocketSessionManager.getSessionBy(memberId), payload, chatRoomId);
         }
     }
 
-    private void send(Collection<WebSocketSession> sessions, Object payload, Long chatRoomId) {
+    private void sendToSessions(Collection<WebSocketSession> sessions, Object payload, Long chatRoomId) {
         if (sessions.isEmpty()) {
             return;
         }

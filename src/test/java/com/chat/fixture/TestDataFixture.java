@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+import static com.chat.fixture.ClientMessageIdFixture.nextClientMessageId;
+
 @Component
 @RequiredArgsConstructor
 public class TestDataFixture {
@@ -61,7 +63,7 @@ public class TestDataFixture {
     }
 
     public Message savedSimpleChat(String message, Member member, Space chatRoom) {
-        Message chat = Message.of(message, member, chatRoom);
+        Message chat = Message.of(message, member, chatRoom, nextClientMessageId());
         return messageRepository.save(chat);
     }
 
